@@ -12,7 +12,7 @@ from app.db.session import get_session, criar_tabelas
 from app.db.models import (Paciente, AgendaSessao, Despesa, TipoContrato,
     Frequencia, DiaSemana, StatusPaciente, StatusPresenca, StatusPagamento,
     Usuario, Perfil)
-from app.auth.login import autenticar, criar_usuario, gerar_hash
+from app.auth.login import autenticar, gerar_hash
 from app.services.email_srv import gerar_reset, aplicar_reset
 from app.services.feriados import feriados_brasil
 from app.services.indisponibilidade import (datas_dia_todo, horarios_bloqueados)
@@ -131,6 +131,36 @@ def mostrar_flash():
 # ---------- LOGIN ----------
 def tela_login():
     st.title("Gestão Consultório - Login")
+    sem_usuarios = db().query(Usuario.id_usuario).first() is None
+    if sem_usuarios:
+        st.warning("Nenhum usuario cadastrado. Crie o primeiro acesso administrativo.")
+        with st.expander("Primeiro acesso (criar usuario)", expanded=True):
+            with st.form("primeiro_acesso"):
+                c1, c2 = st.columns(2)
+                un = c1.text_input("Login", value="dona")
+                nm = c2.text_input("Nome completo")
+                em = c1.text_input("Email")
+                sn = c2.text_input("Senha", type="password",
+                    help="Min. 6 letras + 1 numero + 1 caractere especial")
+                cf = st.text_input("Confirmar senha", type="password")
+                if st.form_submit_button("Criar primeiro usuario"):
+                    from app.auth.senha_policy import validar_senha
+                    ok_s, msg_s = validar_senha(sn)
+                    if not un or not nm:
+                        st.error("Login e nome completo sao obrigatorios.")
+                    elif sn != cf:
+                        st.error("As senhas nao conferem.")
+                    elif not ok_s:
+                        st.error(msg_s)
+                    else:
+                        db().add(Usuario(username=un, nome=nm, email=em,
+                            senha_hash=gerar_hash(sn), perfil=Perfil.DONA,
+                            ativo=True))
+                        db().commit()
+                        registrar(db(), un, "PRIMEIRO_USUARIO_CRIADO",
+                                  "perfil=Dona")
+                        st.success("Primeiro usuario criado. Faca login.")
+                        st.rerun()
     with st.form("login"):
         u = st.text_input("Usuário")
         p = st.text_input("Senha", type="password")

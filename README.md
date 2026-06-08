@@ -6,7 +6,12 @@ docker compose up --build
 ```
 Acesse: http://localhost:8501
 
-Primeiro acesso: expanda "Primeiro acesso (criar usuario)" na tela de login.
+Primeiro acesso: se ainda nao existir usuario no banco, expanda
+"Primeiro acesso (criar usuario)" na tela de login e crie o usuario Dona.
+
+Opcionalmente, defina `BOOTSTRAP_ADMIN_PASSWORD` no `.env` para criar o
+primeiro administrador automaticamente na subida inicial. Nao ha senhas padrao
+fixas no codigo.
 
 ## Rodar local sem Docker
 ```

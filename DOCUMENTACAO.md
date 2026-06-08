@@ -99,7 +99,7 @@ Na inicializacao, a aplicacao:
 
 1. Configura pagina e estilos basicos.
 2. Cria tabelas no banco via `criar_tabelas()`.
-3. Inicializa usuarios padrao caso ainda nao exista o usuario `dona`.
+3. Inicializa o primeiro administrador via ambiente, se configurado.
 4. Garante historico inicial de contrato para pacientes existentes.
 5. Remove automaticamente pacientes inativos ha mais de 2 anos.
 6. Exibe a tela de login ou, apos autenticacao, o menu lateral conforme o perfil do usuario.
@@ -217,18 +217,18 @@ Os perfis definidos em `app/db/models.py` sao:
 - `Financeiro`: acesso a Pagamentos e Financeiro.
 - `Programador`: acesso a todos os modulos.
 
-## Usuarios padrao
+## Primeiro acesso
 
-O arquivo `app/auth/init_users.py` cria usuarios padrao quando ainda nao existe o usuario `dona`.
+Nao ha senhas padrao fixas no codigo.
 
-| Usuario | Perfil |
-| --- | --- |
-| dona | Dona |
-| secretaria | Secretaria |
-| financeiro | Financeiro |
-| dev | Programador |
+Quando o banco ainda nao tem usuarios, a tela de login mostra o formulario
+"Primeiro acesso (criar usuario)". Esse formulario cria o primeiro usuario
+com perfil `Dona`, que depois pode criar os demais usuarios pela tela
+`Usuarios`.
 
-Recomendacao: alterar as senhas padrao antes de usar em producao.
+Opcionalmente, o arquivo `app/auth/init_users.py` tambem pode criar o primeiro
+administrador automaticamente se `BOOTSTRAP_ADMIN_PASSWORD` estiver configurada
+no ambiente. Se ja existir qualquer usuario, esse bootstrap nao altera nada.
 
 ## Modelo de dados
 
@@ -362,6 +362,10 @@ Baseadas em `.env.example`:
 | `POSTGRES_PASSWORD` | Senha do PostgreSQL |
 | `POSTGRES_DB` | Nome do banco |
 | `DATABASE_URL` | String de conexao usada pelo SQLAlchemy |
+| `BOOTSTRAP_ADMIN_USERNAME` | Login do primeiro administrador automatico, padrao `dona` |
+| `BOOTSTRAP_ADMIN_NAME` | Nome do primeiro administrador automatico |
+| `BOOTSTRAP_ADMIN_EMAIL` | Email do primeiro administrador automatico |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Senha forte para criar o primeiro administrador automatico |
 | `SMTP_HOST` | Servidor SMTP para reset de senha |
 | `SMTP_PORT` | Porta SMTP, padrao 465 |
 | `SMTP_USER` | Usuario SMTP |
@@ -375,6 +379,8 @@ Se o SMTP nao estiver configurado, o codigo de redefinicao de senha aparece na t
 Pontos implementados:
 
 - senhas com hash bcrypt;
+- ausencia de senhas padrao fixas no codigo;
+- criacao do primeiro usuario pela tela ou por variavel de ambiente;
 - politica minima de senha;
 - timeout de sessao apos 15 minutos;
 - perfis com permissoes por modulo;
@@ -385,9 +391,9 @@ Pontos implementados:
 
 Pontos recomendados para producao:
 
-- alterar senhas padrao;
 - configurar SMTP real;
 - usar senha forte no PostgreSQL;
+- usar senha forte em `BOOTSTRAP_ADMIN_PASSWORD`, caso o bootstrap automatico seja usado;
 - proteger o acesso ao Streamlit com HTTPS/reverse proxy;
 - revisar `.env` para garantir que nao seja versionado;
 - adicionar backups regulares do volume PostgreSQL;
