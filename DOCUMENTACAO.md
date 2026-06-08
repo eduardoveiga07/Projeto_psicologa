@@ -352,6 +352,12 @@ O arquivo `app/db/session.py`:
 
 Essa migracao e simples e nao substitui uma ferramenta formal como Alembic, mas ajuda a evoluir o prototipo sem recriar o banco.
 
+## Codificacao e finais de linha
+
+O projeto usa UTF-8 como padrao de codificacao. Os arquivos `.editorconfig` e
+`.gitattributes` ajudam a manter charset, finais de linha e tratamento de
+arquivos binarios consistentes entre Windows, Linux e Docker.
+
 ## Variaveis de ambiente
 
 Baseadas em `.env.example`:
@@ -409,14 +415,12 @@ E usado para relatorios como feriados, pagamentos e dados financeiros exibidos n
 
 1. Existem arquivos aparentemente legados: `app/models.py` e `app/financeiro.py`.
 2. O README atual e resumido; este documento detalha melhor a arquitetura e regras.
-3. Alguns textos no codigo aparecem com caracteres quebrados, indicando possivel problema de encoding em arquivos salvos anteriormente.
-4. Nao ha suite de testes automatizados no projeto.
-5. Nao ha ferramenta formal de migracao de banco, como Alembic.
+3. Nao ha suite de testes automatizados no projeto.
+4. Nao ha ferramenta formal de migracao de banco, como Alembic.
 
 ## Sugestoes de proximos passos
 
 1. Remover ou arquivar arquivos legados apos confirmar que nao sao usados.
-2. Corrigir encoding dos arquivos para UTF-8.
-3. Criar testes unitarios para calendario, ocupacao, contrato e financeiro.
-4. Adicionar um guia operacional para backup/restauracao do PostgreSQL.
-5. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.
+2. Criar testes unitarios para calendario, ocupacao, contrato e financeiro.
+3. Adicionar um guia operacional para backup/restauracao do PostgreSQL.
+4. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.
