@@ -1,0 +1,6 @@
+[client]
+# LGPD: nao exibir detalhes de erro/traceback na tela do usuario.
+showErrorDetails = false
+
+[server]
+headless = true
