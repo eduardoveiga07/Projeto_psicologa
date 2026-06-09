@@ -208,6 +208,12 @@ Ao criar usuario, a senha deve obedecer a politica:
 - pelo menos 1 numero;
 - pelo menos 1 caractere especial.
 
+### Minha conta
+
+Disponivel para todos os perfis. Permite ao usuario logado alterar a propria
+senha informando senha atual, nova senha e confirmacao. A nova senha segue a
+mesma politica minima de seguranca e a sessao e encerrada apos a alteracao.
+
 ## Perfis e permissoes
 
 Os perfis definidos em `app/db/models.py` sao:

@@ -20,6 +20,7 @@ from app.db.models import Indisponibilidade, MotivoIndisp
 from app.services.financeiro import consolidado_mes, consolidado_periodo
 from app.services.pdf_export import gerar_pdf
 from app.services.auditoria import registrar
+from app.auth.senha_service import trocar_senha_usuario
 
 st.set_page_config(page_title="Gestão Consultório", layout="wide")
 
@@ -1890,6 +1891,32 @@ def tela_usuarios():
 
 
 # ---------- ROUTER ----------
+def tela_minha_conta():
+    mostrar_flash()
+    st.header("Minha conta")
+    st.subheader("Alterar senha")
+    with st.form("alterar_senha"):
+        senha_atual = st.text_input("Senha atual", type="password")
+        nova_senha = st.text_input("Nova senha", type="password",
+            help="Min. 6 letras + 1 numero + 1 caractere especial")
+        confirmar = st.text_input("Confirmar nova senha", type="password")
+        if st.form_submit_button("Salvar nova senha"):
+            ok, msg = trocar_senha_usuario(
+                db(), st.session_state.username,
+                senha_atual, nova_senha, confirmar)
+            if ok:
+                registrar(db(), st.session_state.username,
+                          "SENHA_ALTERADA", "alteracao pelo usuario logado")
+                st.session_state.clear()
+                st.success(msg + " Faca login novamente.")
+                st.stop()
+            else:
+                registrar(db(), st.session_state.get("username", "?"),
+                          "SENHA_ALTERACAO_FALHOU",
+                          "tentativa sem dados sensiveis")
+                st.error(msg)
+
+
 if "user" not in st.session_state:
     tela_login()
 else:
@@ -1914,17 +1941,19 @@ else:
 
     # Permissoes por perfil:
     perfil = st.session_state.perfil
-    TODAS = {"Cadastro": tela_cadastro, "Agenda": tela_agenda,
+    TODAS = {"Minha conta": tela_minha_conta,
+             "Cadastro": tela_cadastro, "Agenda": tela_agenda,
              "Calendário": tela_calendario,
              "Pagamentos": tela_pagamentos, "Financeiro": tela_financeiro,
              "Usuários": tela_usuarios}
     if perfil == Perfil.DONA.value:
-        permitidas = ["Cadastro", "Agenda", "Calendário",
+        permitidas = ["Minha conta", "Cadastro", "Agenda", "Calendário",
                       "Pagamentos", "Financeiro", "Usuários"]
     elif perfil == Perfil.SECRETARIA.value:
-        permitidas = ["Cadastro", "Agenda", "Calendário", "Pagamentos"]
+        permitidas = ["Minha conta", "Cadastro", "Agenda", "Calendário",
+                      "Pagamentos"]
     elif perfil == Perfil.FINANCEIRO.value:
-        permitidas = ["Pagamentos", "Financeiro"]
+        permitidas = ["Minha conta", "Pagamentos", "Financeiro"]
     else:  # PROGRAMADOR
         permitidas = list(TODAS.keys())
 
