@@ -26,6 +26,17 @@ streamlit run app/main.py
 python -m unittest discover -s tests
 ```
 
+## Migracoes de banco
+```
+alembic upgrade head
+alembic revision --autogenerate -m "descreva a mudanca"
+```
+
+O Alembic usa `DATABASE_URL` quando configurado.
+
+Para banco ja existente criado pela versao antiga do app, faca backup e use
+`alembic stamp head` apenas depois de conferir que o schema esta equivalente.
+
 ## Estrutura
 - app/db        modelos e conexao
 - app/services  motor financeiro (previsto vs realizado, DRE)

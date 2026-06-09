@@ -340,9 +340,32 @@ O arquivo `app/services/financeiro.py` calcula:
 
 Mudancas de contrato sao tratadas por data, usando o snapshot vigente no dia da sessao ou da previsao.
 
-## Banco de dados e migracao simples
+## Banco de dados e migracoes
 
-O arquivo `app/db/session.py`:
+O projeto possui configuracao Alembic em `alembic.ini` e migrações em
+`migrations/`.
+
+Comandos principais:
+
+```bash
+alembic upgrade head
+alembic revision --autogenerate -m "descreva a mudanca"
+```
+
+O Alembic usa `DATABASE_URL` quando a variavel estiver definida. Caso contrario,
+usa a URL fallback configurada em `alembic.ini`.
+
+A primeira migracao versionada e `20260609_0001_schema_inicial`, que representa
+o schema atual dos modelos SQLAlchemy.
+
+Para bancos ja criados pela versao antiga do app, faca backup e confira se o
+schema esta equivalente antes de marcar a versao atual:
+
+```bash
+alembic stamp head
+```
+
+O arquivo `app/db/session.py` ainda:
 
 - cria o engine SQLAlchemy;
 - cria tabelas;
@@ -350,7 +373,8 @@ O arquivo `app/db/session.py`:
 - amplia tamanho de colunas `VARCHAR` quando necessario;
 - remove constraint antiga de duracao fixa de 1 hora em `agenda_sessoes`.
 
-Essa migracao e simples e nao substitui uma ferramenta formal como Alembic, mas ajuda a evoluir o prototipo sem recriar o banco.
+Essa compatibilidade foi mantida para nao quebrar bancos existentes, mas novas
+mudancas de schema devem ser registradas por migrações Alembic.
 
 ## Codificacao e finais de linha
 
@@ -414,7 +438,7 @@ Pontos recomendados para producao:
 - proteger o acesso ao Streamlit com HTTPS/reverse proxy;
 - revisar `.env` para garantir que nao seja versionado;
 - adicionar backups regulares do volume PostgreSQL;
-- substituir migracao manual por Alembic se o sistema crescer.
+- aplicar Alembic no processo de deploy antes de subir a aplicacao;
 
 ## Exportacao de PDF
 
@@ -426,10 +450,11 @@ E usado para relatorios como feriados, pagamentos e dados financeiros exibidos n
 
 1. O README atual e resumido; este documento detalha melhor a arquitetura e regras.
 2. A suite de testes ainda e inicial e nao cobre fluxos com banco de dados.
-3. Nao ha ferramenta formal de migracao de banco, como Alembic.
+3. O app ainda mantem migracao simples de compatibilidade em `session.py`.
 
 ## Sugestoes de proximos passos
 
 1. Ampliar testes para contrato historico, remarcacoes e fluxos com banco.
-2. Adicionar um guia operacional para backup/restauracao do PostgreSQL.
-3. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.
+2. Migrar totalmente o bootstrap do banco para Alembic em ambiente de producao.
+3. Adicionar um guia operacional para backup/restauracao do PostgreSQL.
+4. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.
