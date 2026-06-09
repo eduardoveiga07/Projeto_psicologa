@@ -232,6 +232,10 @@ Quando o banco ainda nao tem usuarios, a tela de login mostra o formulario
 com perfil `Dona`, que depois pode criar os demais usuarios pela tela
 `Usuarios`.
 
+O login e normalizado para minusculas e aceita apenas letras, numeros, ponto,
+hifen e underline, com 3 a 50 caracteres. Nome e obrigatorio e email, quando
+informado, precisa ter formato valido.
+
 Opcionalmente, o arquivo `app/auth/init_users.py` tambem pode criar o primeiro
 administrador automaticamente se `BOOTSTRAP_ADMIN_PASSWORD` estiver configurada
 no ambiente. Se ja existir qualquer usuario, esse bootstrap nao altera nada.

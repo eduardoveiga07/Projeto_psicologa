@@ -21,6 +21,12 @@ from app.services.financeiro import consolidado_mes, consolidado_periodo
 from app.services.pdf_export import gerar_pdf
 from app.services.auditoria import registrar
 from app.auth.senha_service import trocar_senha_usuario
+from app.auth.usuario_validacao import (
+    normalizar_username,
+    validar_email_opcional,
+    validar_nome,
+    validar_username,
+)
 
 st.set_page_config(page_title="Gestão Consultório", layout="wide")
 
@@ -146,9 +152,19 @@ def tela_login():
                 cf = st.text_input("Confirmar senha", type="password")
                 if st.form_submit_button("Criar primeiro usuario"):
                     from app.auth.senha_policy import validar_senha
+                    un = normalizar_username(un)
+                    nm = (nm or "").strip()
+                    em = (em or "").strip()
                     ok_s, msg_s = validar_senha(sn)
-                    if not un or not nm:
-                        st.error("Login e nome completo sao obrigatorios.")
+                    ok_u, msg_u = validar_username(un)
+                    ok_n, msg_n = validar_nome(nm)
+                    ok_e, msg_e = validar_email_opcional(em)
+                    if not ok_u:
+                        st.error(msg_u)
+                    elif not ok_n:
+                        st.error(msg_n)
+                    elif not ok_e:
+                        st.error(msg_e)
                     elif sn != cf:
                         st.error("As senhas nao conferem.")
                     elif not ok_s:
@@ -1862,9 +1878,19 @@ def tela_usuarios():
                            help="Mín. 6 letras + 1 número + 1 caractere especial")
         if st.form_submit_button("Criar"):
             from app.auth.senha_policy import validar_senha
+            un = normalizar_username(un)
+            nm = (nm or "").strip()
+            em = (em or "").strip()
             ok_s, msg_s = validar_senha(sn)
-            if not un:
-                st.error("Login é obrigatório.")
+            ok_u, msg_u = validar_username(un)
+            ok_n, msg_n = validar_nome(nm)
+            ok_e, msg_e = validar_email_opcional(em)
+            if not ok_u:
+                st.error(msg_u)
+            elif not ok_n:
+                st.error(msg_n)
+            elif not ok_e:
+                st.error(msg_e)
             elif not ok_s:
                 st.error(msg_s)
             elif db().query(Usuario).filter(Usuario.username == un).first():
