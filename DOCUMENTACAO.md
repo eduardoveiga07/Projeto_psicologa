@@ -89,7 +89,7 @@ postgresql+psycopg2://psico:psico@localhost:5432/consultorio
 +-- README.md
 ```
 
-Observacao: existem tambem `app/models.py` e `app/financeiro.py`, que parecem versoes antigas/legadas. A aplicacao atual importa os modelos de `app/db/models.py` e o motor financeiro de `app/services/financeiro.py`.
+Observacao: os modelos ativos ficam em `app/db/models.py` e o motor financeiro ativo fica em `app/services/financeiro.py`.
 
 ## Fluxo principal da aplicacao
 
@@ -413,14 +413,12 @@ E usado para relatorios como feriados, pagamentos e dados financeiros exibidos n
 
 ## Pontos de atencao encontrados
 
-1. Existem arquivos aparentemente legados: `app/models.py` e `app/financeiro.py`.
-2. O README atual e resumido; este documento detalha melhor a arquitetura e regras.
-3. Nao ha suite de testes automatizados no projeto.
-4. Nao ha ferramenta formal de migracao de banco, como Alembic.
+1. O README atual e resumido; este documento detalha melhor a arquitetura e regras.
+2. Nao ha suite de testes automatizados no projeto.
+3. Nao ha ferramenta formal de migracao de banco, como Alembic.
 
 ## Sugestoes de proximos passos
 
-1. Remover ou arquivar arquivos legados apos confirmar que nao sao usados.
-2. Criar testes unitarios para calendario, ocupacao, contrato e financeiro.
-3. Adicionar um guia operacional para backup/restauracao do PostgreSQL.
-4. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.
+1. Criar testes unitarios para calendario, ocupacao, contrato e financeiro.
+2. Adicionar um guia operacional para backup/restauracao do PostgreSQL.
+3. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.
