@@ -21,6 +21,11 @@ export DATABASE_URL="postgresql+psycopg2://psico:psico@localhost:5432/consultori
 streamlit run app/main.py
 ```
 
+## Rodar testes
+```
+python -m unittest discover -s tests
+```
+
 ## Estrutura
 - app/db        modelos e conexao
 - app/services  motor financeiro (previsto vs realizado, DRE)

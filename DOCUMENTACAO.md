@@ -358,6 +358,17 @@ O projeto usa UTF-8 como padrao de codificacao. Os arquivos `.editorconfig` e
 `.gitattributes` ajudam a manter charset, finais de linha e tratamento de
 arquivos binarios consistentes entre Windows, Linux e Docker.
 
+## Testes automatizados
+
+Os testes ficam em `tests/` e podem ser executados com:
+
+```bash
+python -m unittest discover -s tests
+```
+
+A suite inicial cobre regras puras de calendario, ocupacao de horarios e
+previsao financeira sem depender de PostgreSQL.
+
 ## Variaveis de ambiente
 
 Baseadas em `.env.example`:
@@ -414,11 +425,11 @@ E usado para relatorios como feriados, pagamentos e dados financeiros exibidos n
 ## Pontos de atencao encontrados
 
 1. O README atual e resumido; este documento detalha melhor a arquitetura e regras.
-2. Nao ha suite de testes automatizados no projeto.
+2. A suite de testes ainda e inicial e nao cobre fluxos com banco de dados.
 3. Nao ha ferramenta formal de migracao de banco, como Alembic.
 
 ## Sugestoes de proximos passos
 
-1. Criar testes unitarios para calendario, ocupacao, contrato e financeiro.
+1. Ampliar testes para contrato historico, remarcacoes e fluxos com banco.
 2. Adicionar um guia operacional para backup/restauracao do PostgreSQL.
 3. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.
