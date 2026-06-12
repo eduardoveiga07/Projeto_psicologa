@@ -2,7 +2,7 @@ import streamlit as st
 from datetime import datetime, date
 from decimal import Decimal
 from app.screens.shared import db, mostrar_flash, flash, Despesa, Perfil
-from app.services.financeiro import fmt_br, expandir_recorrentes, consolidado_periodo
+from app.services.financeiro import fmt_br, expandir_recorrentes, consolidado_periodo, historico_ultimos_meses
 from app.services.pdf_export import gerar_pdf
 
 # Importa o validador de despesas
@@ -39,45 +39,131 @@ def tela_financeiro():
 
     r = consolidado_periodo(db(), int(ano), meses)
     st.subheader(f"Resultado: {rotulo}")
-    k1, k2, k3 = st.columns(3)
+    k1, k2, k3, k4 = st.columns(4)
     k1.metric("Faturamento Previsto", fmt_br(r["faturamento_previsto"]))
     k2.metric("Faturamento Realizado", fmt_br(r["faturamento_realizado"]))
-    k3.metric("Lucro Líquido", fmt_br(r["lucro_liquido"]))
+    k3.metric("Inadimplência / Pendente", fmt_br(r.get("inadimplencia", Decimal(0))))
+    k4.metric("Lucro Líquido", fmt_br(r["lucro_liquido"]))
     st.caption(f"💰 Total de despesas: {fmt_br(r['total_despesas'])} — detalhe na seção '💸 Despesas do período' mais abaixo")
 
     if r["linhas"]:
         import plotly.graph_objects as go
-        ordenado = sorted(r["linhas"],
-            key=lambda l: float(l["faturamento_previsto"]), reverse=True)
-        top = ordenado[:10]
-        outros = ordenado[10:]
-        nomes = [l["paciente"] for l in top]
-        prev = [float(l["faturamento_previsto"]) for l in top]
-        real = [float(l["faturamento_realizado"]) for l in top]
-        if outros:
-            nomes.append(f"Outros ({len(outros)})")
-            prev.append(sum(float(l["faturamento_previsto"]) for l in outros))
-            real.append(sum(float(l["faturamento_realizado"]) for l in outros))
-        fig = go.Figure(data=[
-            go.Bar(name="Previsto", y=nomes, x=prev, orientation="h",
-                   marker_color="#4a90e2",
-                   text=[fmt_br(v) for v in prev], textposition="auto"),
-            go.Bar(name="Realizado", y=nomes, x=real, orientation="h",
-                   marker_color="#27ae60",
-                   text=[fmt_br(v) for v in real], textposition="auto"),
+        
+        tab_evolucao, tab_pacientes, tab_despesas = st.tabs([
+            "📈 Evolução Temporal",
+            "👥 Faturamento por Paciente",
+            "💸 Distribuição de Despesas"
         ])
-        fig.update_layout(barmode="group", height=max(350, 40 * len(nomes)),
-            xaxis_title="R$", template="plotly_dark",
-            margin=dict(t=20, b=40, l=10, r=10),
-            yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig, use_container_width=True)
-    fin_rows = [{**l, "faturamento_previsto": fmt_br(l["faturamento_previsto"]),
-        "faturamento_realizado": fmt_br(l["faturamento_realizado"])}
-        for l in r["linhas"]]
+        
+        with tab_evolucao:
+            # Obter histórico de meses conforme o período selecionado
+            if periodo == "Mensal":
+                historico = historico_ultimos_meses(db(), int(ano), int(m), qtd=6)
+            else:
+                historico = historico_ultimos_meses(db(), int(ano), meses[-1], qtd=len(meses))
+                
+            eixo_x = [h["mes_rotulo"] for h in historico]
+            y_realizado = [h["faturamento_realizado"] for h in historico]
+            y_despesas = [h["total_despesas"] for h in historico]
+            y_lucro = [h["lucro_liquido"] for h in historico]
+            
+            fig_ev = go.Figure()
+            fig_ev.add_trace(go.Scatter(
+                x=eixo_x, y=y_realizado, name="Faturamento Realizado",
+                line=dict(color="#27ae60", width=3), mode="lines+markers+text",
+                text=[fmt_br(v) for v in y_realizado], textposition="top center"
+            ))
+            fig_ev.add_trace(go.Scatter(
+                x=eixo_x, y=y_despesas, name="Total de Despesas",
+                line=dict(color="#e74c3c", width=2, dash="dash"), mode="lines+markers"
+            ))
+            fig_ev.add_trace(go.Scatter(
+                x=eixo_x, y=y_lucro, name="Lucro Líquido",
+                line=dict(color="#4a90e2", width=3), mode="lines+markers+text",
+                text=[fmt_br(v) for v in y_lucro], textposition="bottom center"
+            ))
+            
+            fig_ev.update_layout(
+                title="Evolução Temporal no Período (R$)",
+                xaxis_title="Período",
+                yaxis_title="R$",
+                template="plotly_dark",
+                margin=dict(t=40, b=40, l=10, r=10),
+                height=400
+            )
+            st.plotly_chart(fig_ev, use_container_width=True)
+
+        with tab_pacientes:
+            ordenado = sorted(r["linhas"],
+                key=lambda l: float(l["faturamento_previsto"]), reverse=True)
+            top = ordenado[:10]
+            outros = ordenado[10:]
+            nomes = [l["paciente"] for l in top]
+            prev = [float(l["faturamento_previsto"]) for l in top]
+            real = [float(l["faturamento_realizado"]) for l in top]
+            if outros:
+                nomes.append(f"Outros ({len(outros)})")
+                prev.append(sum(float(l["faturamento_previsto"]) for l in outros))
+                real.append(sum(float(l["faturamento_realizado"]) for l in outros))
+            fig = go.Figure(data=[
+                go.Bar(name="Previsto", y=nomes, x=prev, orientation="h",
+                       marker_color="#4a90e2",
+                       text=[fmt_br(v) for v in prev], textposition="auto"),
+                go.Bar(name="Realizado", y=nomes, x=real, orientation="h",
+                       marker_color="#27ae60",
+                       text=[fmt_br(v) for v in real], textposition="auto"),
+            ])
+            fig.update_layout(barmode="group", height=max(350, 40 * len(nomes)),
+                xaxis_title="R$", template="plotly_dark",
+                margin=dict(t=20, b=40, l=10, r=10),
+                yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig, use_container_width=True)
+
+        with tab_despesas:
+            # Buscar despesas do período agrupadas por descrição
+            refs_periodo = [f"{int(ano):04d}-{mm:02d}" for mm in meses]
+            despesas_db = db().query(Despesa).filter(
+                Despesa.mes_referencia.in_(refs_periodo)).all()
+                
+            contagem_desp = {}
+            for d in despesas_db:
+                contagem_desp[d.descricao] = contagem_desp.get(d.descricao, Decimal(0)) + d.valor
+                
+            if contagem_desp:
+                labels = list(contagem_desp.keys())
+                valores_desp = [float(v) for v in contagem_desp.values()]
+                
+                fig_desp = go.Figure(data=[go.Pie(
+                    labels=labels,
+                    values=valores_desp,
+                    hole=0.4,
+                    hoverinfo="label+percent+value",
+                    textinfo="percent"
+                )])
+                
+                fig_desp.update_layout(
+                    title="Divisão de Despesas por Categoria",
+                    template="plotly_dark",
+                    margin=dict(t=40, b=20, l=10, r=10),
+                    height=350
+                )
+                st.plotly_chart(fig_desp, use_container_width=True)
+            else:
+                st.info("Sem despesas lançadas no período para exibir o gráfico.")
+
+    fin_rows = [{
+        "Paciente": l["paciente"],
+        "Sessões Previstas": l["sessoes_previstas"],
+        "Faturamento Previsto": fmt_br(l["faturamento_previsto"]),
+        "Sessões Realizadas": l["sessoes_realizadas"],
+        "Faturamento Realizado": fmt_br(l["faturamento_realizado"]),
+        "Inadimplência / Pendente": fmt_br(l.get("inadimplencia", Decimal(0)))
+    } for l in r["linhas"]]
+    
     st.dataframe(fin_rows, use_container_width=True)
     st.download_button("Baixar PDF",
         gerar_pdf(f"Financeiro — {rotulo}", fin_rows),
-        file_name="financeiro.pdf", mime="application/pdf")
+        file_name=f"financeiro_{rotulo.replace('/', '_')}.pdf", mime="application/pdf")
 
     # ===== DESPESAS DETALHADAS =====
     st.subheader("💸 Despesas do período")

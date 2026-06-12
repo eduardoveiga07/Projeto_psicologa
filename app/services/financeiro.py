@@ -3,7 +3,7 @@ from decimal import Decimal
 from datetime import datetime, date
 from sqlalchemy import func, extract
 from app.db.models import (Paciente, AgendaSessao, Despesa,
-                           StatusPaciente, StatusPresenca, Frequencia)
+                           StatusPaciente, StatusPresenca, Frequencia, StatusPagamento)
 from app.services.calendario import sessoes_previstas, sessoes_previstas_lista
 from app.services.contrato import snapshot_vigente
 
@@ -130,7 +130,8 @@ def _previsto_legado(p, ano, mes, bloqueadas):
 def realizado_paciente(db, p: Paciente, ano: int, mes: int) -> dict:
     """Sessoes que geram receita: Realizada ou Cancelou -24h (cobra).
     Cada sessao eh valorada pelo snapshot vigente na sua data (corrige
-    mudancas de valor retroativas)."""
+    mudancas de valor retroativas).
+    Tambem calcula a inadimplencia (sessoes faturadas com status PENDENTE ou ATRASADO)."""
     sessoes = db.query(AgendaSessao).filter(
         AgendaSessao.id_paciente == p.id_paciente,
         AgendaSessao.status_presenca.in_([
@@ -140,33 +141,40 @@ def realizado_paciente(db, p: Paciente, ano: int, mes: int) -> dict:
         extract("month", AgendaSessao.data_hora_inicio) == mes,
     ).all()
     fat = Decimal(0)
+    inad = Decimal(0)
     for s in sessoes:
         snap = snapshot_vigente(db, p.id_paciente,
                                 s.data_hora_inicio.date())
-        fat += (snap.valor_sessao if snap else p.valor_sessao)
+        valor = (snap.valor_sessao if snap else p.valor_sessao)
+        fat += valor
+        if s.status_pagamento in [StatusPagamento.PENDENTE, StatusPagamento.ATRASADO]:
+            inad += valor
     return {"paciente": p.nome, "sessoes_realizadas": len(sessoes),
-            "faturamento_realizado": fat}
+            "faturamento_realizado": fat, "inadimplencia": inad}
 
 
 def consolidado_mes(db, ano: int, mes: int) -> dict:
-    """Visao da planilha: previsto e realizado de todos os pacientes ativos + DRE."""
+    """Visao da planilha: previsto e realizado de todos os pacientes ativos + DRE.
+    Incorpora faturamento inadimplente."""
     from app.services.indisponibilidade import datas_dia_todo
     bloq = datas_dia_todo(db, ano, mes)
     ativos = db.query(Paciente).filter(
         Paciente.status == StatusPaciente.ATIVO).all()
 
-    linhas, fat_prev, fat_real = [], Decimal(0), Decimal(0)
+    linhas, fat_prev, fat_real, total_inad = [], Decimal(0), Decimal(0), Decimal(0)
     for p in ativos:
         pv = previsto_paciente(p, ano, mes, bloq, db=db)
         rl = realizado_paciente(db, p, ano, mes)
         fat_prev += pv["faturamento_previsto"]
         fat_real += rl["faturamento_realizado"]
+        total_inad += rl.get("inadimplencia", Decimal(0))
         linhas.append({
             "paciente": p.nome,
             "sessoes_previstas": pv["sessoes_previstas"],
             "faturamento_previsto": pv["faturamento_previsto"],
             "sessoes_realizadas": rl["sessoes_realizadas"],
             "faturamento_realizado": rl["faturamento_realizado"],
+            "inadimplencia": rl.get("inadimplencia", Decimal(0)),
         })
 
     mes_ref = f"{ano:04d}-{mes:02d}"
@@ -179,6 +187,7 @@ def consolidado_mes(db, ano: int, mes: int) -> dict:
         "linhas": linhas,
         "faturamento_previsto": fat_prev,
         "faturamento_realizado": fat_real,
+        "inadimplencia": total_inad,
         "total_despesas": despesas,
         "lucro_liquido": fat_real - despesas,  # DRE simplificado
     }
@@ -186,29 +195,63 @@ def consolidado_mes(db, ano: int, mes: int) -> dict:
 
 def consolidado_periodo(db, ano: int, meses: list) -> dict:
     """Agrega varios meses (trimestre/semestre/ano) somando os totais."""
-    prev = real = desp = Decimal(0)
+    prev = real = desp = inad = Decimal(0)
     agg = {}
     for m in meses:
         r = consolidado_mes(db, ano, m)
         prev += r["faturamento_previsto"]
         real += r["faturamento_realizado"]
         desp += r["total_despesas"]
+        inad += r.get("inadimplencia", Decimal(0))
         for l in r["linhas"]:
             a = agg.setdefault(l["paciente"], {
                 "paciente": l["paciente"], "sessoes_previstas": 0,
                 "faturamento_previsto": Decimal(0),
-                "sessoes_realizadas": 0, "faturamento_realizado": Decimal(0)})
+                "sessoes_realizadas": 0, "faturamento_realizado": Decimal(0),
+                "inadimplencia": Decimal(0)})
             a["sessoes_previstas"] += l["sessoes_previstas"]
             a["faturamento_previsto"] += l["faturamento_previsto"]
             a["sessoes_realizadas"] += l["sessoes_realizadas"]
             a["faturamento_realizado"] += l["faturamento_realizado"]
+            a["inadimplencia"] += l.get("inadimplencia", Decimal(0))
     return {
         "linhas": list(agg.values()),
         "faturamento_previsto": prev,
         "faturamento_realizado": real,
         "total_despesas": desp,
+        "inadimplencia": inad,
         "lucro_liquido": real - desp,
     }
+
+
+def historico_ultimos_meses(db, ano_alvo: int, mes_alvo: int, qtd: int = 6) -> list:
+    """Retorna o historico dos ultimos QTD meses terminando no mes/ano informados (inclusive).
+    Usado para o grafico de linha de evolucao temporal."""
+    meses_lista = []
+    mes = mes_alvo
+    ano = ano_alvo
+    for _ in range(qtd):
+        meses_lista.append((ano, mes))
+        mes -= 1
+        if mes == 0:
+            mes = 12
+            ano -= 1
+    
+    meses_lista.reverse()
+    
+    dados = []
+    for a, m in meses_lista:
+        r = consolidado_mes(db, a, m)
+        dados.append({
+            "ano": a,
+            "mes": m,
+            "mes_rotulo": f"{m:02d}/{a}",
+            "faturamento_realizado": float(r["faturamento_realizado"]),
+            "total_despesas": float(r["total_despesas"]),
+            "lucro_liquido": float(r["lucro_liquido"]),
+        })
+    return dados
+
 
 
 def fmt_br(v) -> str:
