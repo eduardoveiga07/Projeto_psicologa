@@ -37,6 +37,15 @@ O Alembic usa `DATABASE_URL` quando configurado.
 Para banco ja existente criado pela versao antiga do app, faca backup e use
 `alembic stamp head` apenas depois de conferir que o schema esta equivalente.
 
+## Backup e restauracao
+Com Docker Compose rodando:
+```
+powershell -ExecutionPolicy Bypass -File scripts/backup_db.ps1
+powershell -ExecutionPolicy Bypass -File scripts/restore_db.ps1 -BackupFile backups/NOME_DO_ARQUIVO.dump
+```
+
+Os backups locais ficam em `backups/`, que nao e versionado pelo Git.
+
 ## Estrutura
 - app/db        modelos e conexao
 - app/services  motor financeiro (previsto vs realizado, DRE)

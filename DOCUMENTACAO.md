@@ -403,6 +403,21 @@ python -m unittest discover -s tests
 A suite inicial cobre regras puras de calendario, ocupacao de horarios e
 previsao financeira sem depender de PostgreSQL.
 
+## Backup e restauracao
+
+Os scripts operacionais ficam em `scripts/`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/backup_db.ps1
+powershell -ExecutionPolicy Bypass -File scripts/restore_db.ps1 -BackupFile backups/NOME_DO_ARQUIVO.dump
+```
+
+O backup usa `pg_dump` em formato custom (`.dump`) dentro do servico Docker
+`db` e copia o arquivo para `backups/`. A restauracao usa `pg_restore` com
+`--clean --if-exists --no-owner` e exige confirmacao digitando `RESTAURAR`.
+
+O diretorio `backups/` fica no `.gitignore`.
+
 ## Variaveis de ambiente
 
 Baseadas em `.env.example`:
@@ -447,7 +462,7 @@ Pontos recomendados para producao:
 - usar senha forte em `BOOTSTRAP_ADMIN_PASSWORD`, caso o bootstrap automatico seja usado;
 - proteger o acesso ao Streamlit com HTTPS/reverse proxy;
 - revisar `.env` para garantir que nao seja versionado;
-- adicionar backups regulares do volume PostgreSQL;
+- executar e armazenar backups regulares fora da maquina local;
 - aplicar Alembic no processo de deploy antes de subir a aplicacao;
 
 ## Exportacao de PDF
@@ -466,5 +481,5 @@ E usado para relatorios como feriados, pagamentos e dados financeiros exibidos n
 
 1. Ampliar testes para contrato historico, remarcacoes e fluxos com banco.
 2. Migrar totalmente o bootstrap do banco para Alembic em ambiente de producao.
-3. Adicionar um guia operacional para backup/restauracao do PostgreSQL.
+3. Automatizar rotina de backup em ambiente de producao.
 4. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.
