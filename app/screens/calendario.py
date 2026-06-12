@@ -8,6 +8,9 @@ from app.services.feriados import feriados_brasil
 from app.services.pdf_export import gerar_pdf
 from app.services.indisponibilidade import agrupar_em_ranges, formatar_grupo
 
+# Importa o validador de bloqueios
+from app.services.validacao_negocio import validar_datas_bloqueio
+
 
 def tela_calendario():
     mostrar_flash()
@@ -142,8 +145,9 @@ def tela_calendario():
         with st.form("nova_indisp"):
             obs = st.text_input("Observação (opcional)")
             if st.form_submit_button("Adicionar"):
-                if d_fim < d_ini:
-                    st.error("Data final anterior à inicial.")
+                ok_dt, res_dt = validar_datas_bloqueio(d_ini, d_fim)
+                if not ok_dt:
+                    st.error(res_dt)
                 elif recor and not dias_selecionados:
                     st.error("Selecione ao menos um dia da semana.")
                 else:
@@ -298,6 +302,7 @@ def tela_calendario():
                               if g["motivo"] == "Outro" else None))
                     cb1, cb2 = st.columns(2)
                     if cb1.form_submit_button("Salvar"):
+                        ok_dt, res_dt = validar_datas_bloqueio(nv_ini, nv_fim)
                         erro = False
                         if not nv_diatd and eh_multi:
                             for s in nv_slots:
@@ -306,7 +311,10 @@ def tela_calendario():
                                     erro = True; break
                         elif not nv_diatd and nv_ate <= nv_das:
                             erro = True
-                        if erro:
+                        
+                        if not ok_dt:
+                            st.error(res_dt)
+                        elif erro:
                             st.error("Corrija os horários (Até > Das).")
                         else:
                             for rid in g["ids"]:

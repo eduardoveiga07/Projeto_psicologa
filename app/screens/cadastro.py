@@ -14,6 +14,12 @@ from app.db.models import (
 from app.services.feriados import feriados_brasil
 from app.services.pdf_export import gerar_pdf
 
+# Importa os validadores de negócio
+from app.services.validacao_negocio import (
+    validar_telefone, validar_email_paciente, validar_data_nascimento,
+    validar_valor_sessao
+)
+
 
 @st.dialog("Confirmar Exclusão de Paciente")
 def confirmar_exclusao_paciente(p_id, p_nome):
@@ -215,59 +221,74 @@ def tela_cadastro():
                                "Tem certeza? Clique em **Cadastrar avaliação** "
                                "novamente para confirmar.")
                 else:
-                    try:
-                        novo_pac = Paciente(
-                            nome=nome, telefone=tel, email=email_p,
-                            data_nascimento=nasc,
-                            tipo_contrato=TipoContrato.AVULSO,
-                            valor_sessao=Decimal(str(valor_av)),
-                            frequencia=Frequencia.PERSONALIZADO,
-                            horario_atendimento="",
-                            em_avaliacao=True, avaliacao_paga=paga,
-                            valor_avaliacao=Decimal(str(valor_av)),
-                            status=StatusPaciente.ATIVO)
-                        db().add(novo_pac)
-                        db().flush()
-                        if hr_av:
-                            hi, fim = hr_av.split(" - ")
-                            h, m = map(int, hi.split(":"))
-                            hf, mf = map(int, fim.split(":"))
-                            ini = datetime.combine(data_av, time(h, m))
-                            fim_dt = datetime.combine(data_av, time(hf, mf))
-                            # Limpa qualquer sessão preexistente no slot:
-                            # - CANCELADA antiga (exceções/exclusões do calendário)
-                            # - Órfã de paciente excluído
-                            existentes = db().query(AgendaSessao).filter(
-                                AgendaSessao.data_hora_inicio == ini).all()
-                            for ja in existentes:
-                                if ja.status_presenca == StatusPresenca.CANCELADA:
-                                    db().delete(ja)
-                                else:
-                                    # Verifica se paciente ainda existe
-                                    p_ext = db().query(Paciente).filter(
-                                        Paciente.id_paciente == ja.id_paciente).first()
-                                    if not p_ext:
-                                        db().delete(ja)
+                    # Validacoes de negocio
+                    ok_tel, res_tel = validar_telefone(tel)
+                    ok_email, res_email = validar_email_paciente(email_p)
+                    ok_nasc, res_nasc = validar_data_nascimento(nasc)
+                    ok_val, res_val = validar_valor_sessao(Decimal(str(valor_av)), em_avaliacao=True)
+                    
+                    if not ok_tel:
+                        st.error(f"Erro no Telefone: {res_tel}")
+                    elif not ok_email:
+                        st.error(f"Erro no E-mail: {res_email}")
+                    elif not ok_nasc:
+                        st.error(f"Erro na Data de Nascimento: {res_nasc}")
+                    elif not ok_val:
+                        st.error(f"Erro no Valor: {res_val}")
+                    else:
+                        try:
+                            novo_pac = Paciente(
+                                nome=nome, telefone=res_tel, email=res_email or None,
+                                data_nascimento=nasc,
+                                tipo_contrato=TipoContrato.AVULSO,
+                                valor_sessao=Decimal(str(valor_av)),
+                                frequencia=Frequencia.PERSONALIZADO,
+                                horario_atendimento="",
+                                em_avaliacao=True, avaliacao_paga=paga,
+                                valor_avaliacao=Decimal(str(valor_av)),
+                                status=StatusPaciente.ATIVO)
+                            db().add(novo_pac)
                             db().flush()
-                            db().add(AgendaSessao(
-                                id_paciente=novo_pac.id_paciente,
-                                data_hora_inicio=ini, data_hora_fim=fim_dt,
-                                status_presenca=StatusPresenca.AGENDADA))
-                        db().commit()
-                        st.session_state.pop("conf_aval", None)
-                        st.success(f"{nome} cadastrado(a). Sessão em "
-                                   f"{data_av.strftime('%d/%m/%Y')} {hr_av}.")
-                        st.session_state["form_seed_av"] = _kfa + 1
-                        st.rerun()
-                    except Exception as e:
-                        db().rollback()
-                        msg = str(e)
-                        if "data_hora_inicio" in msg or "unique" in msg.lower():
-                            st.error(f"⚠️ Já existe uma sessão em "
-                                f"{data_av.strftime('%d/%m/%Y')} {hr_av}. "
-                                "Escolha outro horário.")
-                        else:
-                            st.error(f"Erro: {type(e).__name__}")
+                            if hr_av:
+                                hi, fim = hr_av.split(" - ")
+                                h, m = map(int, hi.split(":"))
+                                hf, mf = map(int, fim.split(":"))
+                                ini = datetime.combine(data_av, time(h, m))
+                                fim_dt = datetime.combine(data_av, time(hf, mf))
+                                # Limpa qualquer sessão preexistente no slot:
+                                # - CANCELADA antiga (exceções/exclusões do calendário)
+                                # - Órfã de paciente excluído
+                                existentes = db().query(AgendaSessao).filter(
+                                    AgendaSessao.data_hora_inicio == ini).all()
+                                for ja in existentes:
+                                    if ja.status_presenca == StatusPresenca.CANCELADA:
+                                        db().delete(ja)
+                                    else:
+                                        # Verifica se paciente ainda existe
+                                        p_ext = db().query(Paciente).filter(
+                                            Paciente.id_paciente == ja.id_paciente).first()
+                                        if not p_ext:
+                                            db().delete(ja)
+                                db().flush()
+                                db().add(AgendaSessao(
+                                    id_paciente=novo_pac.id_paciente,
+                                    data_hora_inicio=ini, data_hora_fim=fim_dt,
+                                    status_presenca=StatusPresenca.AGENDADA))
+                            db().commit()
+                            st.session_state.pop("conf_aval", None)
+                            st.success(f"{nome} cadastrado(a). Sessão em "
+                                       f"{data_av.strftime('%d/%m/%Y')} {hr_av}.")
+                            st.session_state["form_seed_av"] = _kfa + 1
+                            st.rerun()
+                        except Exception as e:
+                            db().rollback()
+                            msg = str(e)
+                            if "data_hora_inicio" in msg or "unique" in msg.lower():
+                                st.error(f"⚠️ Já existe uma sessão em "
+                                    f"{data_av.strftime('%d/%m/%Y')} {hr_av}. "
+                                    "Escolha outro horário.")
+                            else:
+                                st.error(f"Erro: {type(e).__name__}")
     else:
         freq = st.selectbox("Frequência", [e.value for e in Frequencia])
         dias_opcoes = [e.value for e in DiaSemana]
@@ -336,65 +357,80 @@ def tela_cadastro():
                                    "Tem certeza? Clique em **Cadastrar** "
                                    "novamente para confirmar.")
                     else:
-                        # Checa conflitos ANTES de salvar (sem persistir)
-                        novo_temp = Paciente(
-                            nome=nome, telefone=tel or "", email=email_p,
-                            data_nascimento=nasc,
-                            tipo_contrato=TipoContrato(contrato),
-                            valor_sessao=Decimal(str(valor)),
-                            frequencia=Frequencia(freq),
-                            dia_atendimento=DiaSemana(dias_sel[0]),
-                            dias_semana=",".join(dias_sel),
-                            horario_atendimento=",".join(f"{d}={h}"
-                                for d, h in horarios.items()),
-                            sessoes_mes_custom=int(sessoes_custom) if sessoes_custom else None,
-                            semana_do_mes=semana_mes,
-                            paridade_quinzenal=paridade_q,
-                            ativo_desde=ativo_desde,
-                            em_avaliacao=False,
-                            status=StatusPaciente.ATIVO)
-                        from app.services.ocupacao import detectar_conflitos
-                        hj = datetime.now().date()
-                        r_test = detectar_conflitos(db(), novo_temp,
-                            hj.year, hj.month)
-                        if r_test["conflitos"] and not st.session_state.get("conf_conflito"):
-                            st.session_state.conf_conflito = True
-                            st.error(f"⚠️ {len(r_test['conflitos'])} conflito(s) "
-                                     "detectado(s):")
-                            for dt, hr, nomes in r_test["conflitos"][:5]:
-                                st.write(f"- {dt.strftime('%d/%m/%Y')} {hr} "
-                                         f"— {', '.join(nomes)}")
-                            st.warning("Cadastrar mesmo assim? Clique em "
-                                       "**Cadastrar** novamente para confirmar.")
+                        # Validacoes de negocio
+                        ok_tel, res_tel = validar_telefone(tel)
+                        ok_email, res_email = validar_email_paciente(email_p)
+                        ok_nasc, res_nasc = validar_data_nascimento(nasc)
+                        ok_val, res_val = validar_valor_sessao(Decimal(str(valor)), em_avaliacao=False)
+                        
+                        if not ok_tel:
+                            st.error(f"Erro no Telefone: {res_tel}")
+                        elif not ok_email:
+                            st.error(f"Erro no E-mail: {res_email}")
+                        elif not ok_nasc:
+                            st.error(f"Erro na Data de Nascimento: {res_nasc}")
+                        elif not ok_val:
+                            st.error(f"Erro no Valor: {res_val}")
                         else:
-                            db().add(novo_temp)
-                            db().commit()
-                            st.session_state.pop("conf_rec", None)
-                            st.session_state.pop("conf_conflito", None)
-                            novo_p = db().query(Paciente).filter(
-                                Paciente.nome == nome).order_by(
-                                Paciente.criado_em.desc()).first()
-                            # Abre 1o periodo do historico de contrato
-                            from app.services.contrato import abrir_periodo
-                            abrir_periodo(db(), novo_p,
-                                novo_p.ativo_desde or datetime.now().date())
+                            # Checa conflitos ANTES de salvar (sem persistir)
+                            novo_temp = Paciente(
+                                nome=nome, telefone=res_tel, email=res_email or None,
+                                data_nascimento=nasc,
+                                tipo_contrato=TipoContrato(contrato),
+                                valor_sessao=Decimal(str(valor)),
+                                frequencia=Frequencia(freq),
+                                dia_atendimento=DiaSemana(dias_sel[0]),
+                                dias_semana=",".join(dias_sel),
+                                horario_atendimento=",".join(f"{d}={h}"
+                                    for d, h in horarios.items()),
+                                sessoes_mes_custom=int(sessoes_custom) if sessoes_custom else None,
+                                semana_do_mes=semana_mes,
+                                paridade_quinzenal=paridade_q,
+                                ativo_desde=ativo_desde,
+                                em_avaliacao=False,
+                                status=StatusPaciente.ATIVO)
+                            from app.services.ocupacao import detectar_conflitos
                             hj = datetime.now().date()
-                            r = detectar_conflitos(db(), novo_p, hj.year, hj.month,
-                                                   id_excluir=novo_p.id_paciente)
-                            from app.services.ocupacao import sugerir_horarios
-                            sugs = sugerir_horarios(db(), novo_p, hj.year,
-                                hj.month, FAIXAS_HORARIO,
-                                id_excluir=novo_p.id_paciente)
-                            st.session_state["ultimo_cad"] = {
-                                "nome": nome, "conflitos": r["conflitos"],
-                                "livres": len(r["datas_livres"]),
-                                "freq": novo_p.frequencia.value,
-                                "paridade": novo_p.paridade_quinzenal,
-                                "dia": (novo_p.dias_semana or "").split(",")[0],
-                                "sug_mesmo_dia": sugs["mesmo_dia"],
-                                "sug_outros_dias": sugs["outros_dias"]}
-                            st.session_state["form_seed"] = _kf + 1
-                            st.rerun()
+                            r_test = detectar_conflitos(db(), novo_temp,
+                                hj.year, hj.month)
+                            if r_test["conflitos"] and not st.session_state.get("conf_conflito"):
+                                st.session_state.conf_conflito = True
+                                st.error(f"⚠️ {len(r_test['conflitos'])} conflito(s) "
+                                         "detectado(s):")
+                                for dt, hr, nomes in r_test["conflitos"][:5]:
+                                    st.write(f"- {dt.strftime('%d/%m/%Y')} {hr} "
+                                             f"— {', '.join(nomes)}")
+                                st.warning("Cadastrar mesmo assim? Clique em "
+                                           "**Cadastrar** novamente para confirmar.")
+                            else:
+                                db().add(novo_temp)
+                                db().commit()
+                                st.session_state.pop("conf_rec", None)
+                                st.session_state.pop("conf_conflito", None)
+                                novo_p = db().query(Paciente).filter(
+                                    Paciente.nome == nome).order_by(
+                                    Paciente.criado_em.desc()).first()
+                                # Abre 1o periodo do historico de contrato
+                                from app.services.contrato import abrir_periodo
+                                abrir_periodo(db(), novo_p,
+                                    novo_p.ativo_desde or datetime.now().date())
+                                hj = datetime.now().date()
+                                r = detectar_conflitos(db(), novo_p, hj.year, hj.month,
+                                                       id_excluir=novo_p.id_paciente)
+                                from app.services.ocupacao import sugerir_horarios
+                                sugs = sugerir_horarios(db(), novo_p, hj.year,
+                                    hj.month, FAIXAS_HORARIO,
+                                    id_excluir=novo_p.id_paciente)
+                                st.session_state["ultimo_cad"] = {
+                                    "nome": nome, "conflitos": r["conflitos"],
+                                    "livres": len(r["datas_livres"]),
+                                    "freq": novo_p.frequencia.value,
+                                    "paridade": novo_p.paridade_quinzenal,
+                                    "dia": (novo_p.dias_semana or "").split(",")[0],
+                                    "sug_mesmo_dia": sugs["mesmo_dia"],
+                                    "sug_outros_dias": sugs["outros_dias"]}
+                                st.session_state["form_seed"] = _kf + 1
+                                st.rerun()
 
     # Mostra resultado do ultimo cadastro (apos rerun)
     if st.session_state.get("ultimo_cad"):
@@ -470,14 +506,29 @@ def tela_cadastro():
                         min_value=0.0, value=float(p.valor_avaliacao or 0))
                     bb1, bb2 = st.columns(2)
                     if bb1.form_submit_button("Salvar"):
-                        p.nome = n_nome; p.telefone = n_tel; p.email = n_email
-                        p.data_nascimento = n_nasc
-                        p.avaliacao_paga = n_paga
-                        p.valor_avaliacao = Decimal(str(n_val))
-                        p.valor_sessao = Decimal(str(n_val))
-                        db().commit()
-                        del st.session_state[f"edit_av_{p.id_paciente}"]
-                        st.rerun()
+                        # Validacoes de negocio
+                        ok_tel, res_tel = validar_telefone(n_tel)
+                        ok_email, res_email = validar_email_paciente(n_email)
+                        ok_nasc, res_nasc = validar_data_nascimento(n_nasc)
+                        ok_val, res_val = validar_valor_sessao(Decimal(str(n_val)), em_avaliacao=True)
+                        
+                        if not ok_tel:
+                            st.error(f"Erro no Telefone: {res_tel}")
+                        elif not ok_email:
+                            st.error(f"Erro no E-mail: {res_email}")
+                        elif not ok_nasc:
+                            st.error(f"Erro na Data de Nascimento: {res_nasc}")
+                        elif not ok_val:
+                            st.error(f"Erro no Valor: {res_val}")
+                        else:
+                            p.nome = n_nome; p.telefone = res_tel; p.email = res_email or None
+                            p.data_nascimento = n_nasc
+                            p.avaliacao_paga = n_paga
+                            p.valor_avaliacao = Decimal(str(n_val))
+                            p.valor_sessao = Decimal(str(n_val))
+                            db().commit()
+                            del st.session_state[f"edit_av_{p.id_paciente}"]
+                            st.rerun()
                     if bb2.form_submit_button("Cancelar"):
                         del st.session_state[f"edit_av_{p.id_paciente}"]
                         st.rerun()
@@ -497,19 +548,25 @@ def tela_cadastro():
                         value=datetime.now().date(),
                         format="DD/MM/YYYY", key=f"ad_{p.id_paciente}")
                     if st.form_submit_button("Converter"):
-                        p.em_avaliacao = False
-                        p.frequencia = Frequencia(fq)
-                        p.dia_atendimento = DiaSemana(dia)
-                        p.dias_semana = dia
-                        p.horario_atendimento = f"{dia}={hr}"
-                        p.valor_sessao = Decimal(str(vl))
-                        p.ativo_desde = ad
-                        db().commit()
-                        from app.services.contrato import abrir_periodo
-                        abrir_periodo(db(), p, ad)
-                        del st.session_state[f"converter_{p.id_paciente}"]
-                        flash(f"{p.nome} agora é recorrente.", "success")
-                        st.rerun()
+                        # Validacoes de negocio
+                        ok_val, res_val = validar_valor_sessao(Decimal(str(vl)), em_avaliacao=False)
+                        
+                        if not ok_val:
+                            st.error(f"Erro no Valor: {res_val}")
+                        else:
+                            p.em_avaliacao = False
+                            p.frequencia = Frequencia(fq)
+                            p.dia_atendimento = DiaSemana(dia)
+                            p.dias_semana = dia
+                            p.horario_atendimento = f"{dia}={hr}"
+                            p.valor_sessao = Decimal(str(vl))
+                            p.ativo_desde = ad
+                            db().commit()
+                            from app.services.contrato import abrir_periodo
+                            abrir_periodo(db(), p, ad)
+                            del st.session_state[f"converter_{p.id_paciente}"]
+                            flash(f"{p.nome} agora é recorrente.", "success")
+                            st.rerun()
 
     with st.expander("💤 Pacientes inativos (sem retorno)"):
         inativos = db().query(Paciente).filter(
@@ -642,53 +699,68 @@ def tela_cadastro():
                         format="DD/MM/YYYY", key=f"nad_{p.id_paciente}")
                     cb1, cb2 = st.columns(2)
                     if cb1.form_submit_button("Salvar alterações"):
-                        # Captura estado antigo para detectar mudanca de contrato
-                        antigo = dict(
-                            frequencia=p.frequencia,
-                            valor_sessao=p.valor_sessao,
-                            dias_semana=p.dias_semana,
-                            semana_do_mes=p.semana_do_mes,
-                            paridade_quinzenal=p.paridade_quinzenal,
-                        )
-                        p.nome = nv_nome
-                        p.telefone = nv_tel
-                        p.email = nv_email
-                        p.data_nascimento = nv_nasc
-                        p.dia_atendimento = DiaSemana(nv_dia)
-                        p.frequencia = Frequencia(nv_freq)
-                        p.semana_do_mes = nv_semana
-                        p.paridade_quinzenal = nv_paridade
-                        p.dias_semana = nv_dia
-                        p.horario_atendimento = f"{nv_dia}={nv_hr}"
-                        p.valor_sessao = Decimal(str(nv_vl))
-                        p.ativo_desde = nv_ad
-                        db().commit()
-                        # Se algum campo de contrato mudou, abre novo periodo
-                        mudou = (
-                            antigo["frequencia"] != p.frequencia or
-                            Decimal(str(antigo["valor_sessao"])) != p.valor_sessao or
-                            (antigo["dias_semana"] or "") != (p.dias_semana or "") or
-                            antigo["semana_do_mes"] != p.semana_do_mes or
-                            antigo["paridade_quinzenal"] != p.paridade_quinzenal
-                        )
-                        if mudou:
-                            from app.services.contrato import abrir_periodo
-                            abrir_periodo(db(), p, datetime.now().date())
-                        del st.session_state[f"editar_{p.id_paciente}"]
-                        registrar(db(), st.session_state.username,
-                                  "PACIENTE_EDITADO", "alteracao de cadastro")
-                        # Detectar conflitos apos edicao
-                        from app.services.ocupacao import detectar_conflitos
-                        hj = datetime.now().date()
-                        r = detectar_conflitos(db(), p, hj.year, hj.month,
-                                               id_excluir=p.id_paciente)
-                        st.session_state["ultimo_cad"] = {
-                            "nome": p.nome, "conflitos": r["conflitos"],
-                            "livres": len(r["datas_livres"]),
-                            "freq": p.frequencia.value,
-                            "paridade": p.paridade_quinzenal,
-                            "dia": (p.dias_semana or "").split(",")[0]}
-                        st.rerun()
+                        # Validacoes de negocio
+                        ok_tel, res_tel = validar_telefone(nv_tel)
+                        ok_email, res_email = validar_email_paciente(nv_email)
+                        ok_nasc, res_nasc = validar_data_nascimento(nv_nasc)
+                        ok_val, res_val = validar_valor_sessao(Decimal(str(nv_vl)), em_avaliacao=False)
+                        
+                        if not ok_tel:
+                            st.error(f"Erro no Telefone: {res_tel}")
+                        elif not ok_email:
+                            st.error(f"Erro no E-mail: {res_email}")
+                        elif not ok_nasc:
+                            st.error(f"Erro na Data de Nascimento: {res_nasc}")
+                        elif not ok_val:
+                            st.error(f"Erro no Valor: {res_val}")
+                        else:
+                            # Captura estado antigo para detectar mudanca de contrato
+                            antigo = dict(
+                                frequencia=p.frequencia,
+                                valor_sessao=p.valor_sessao,
+                                dias_semana=p.dias_semana,
+                                semana_do_mes=p.semana_do_mes,
+                                paridade_quinzenal=p.paridade_quinzenal,
+                            )
+                            p.nome = nv_nome
+                            p.telefone = res_tel
+                            p.email = res_email or None
+                            p.data_nascimento = nv_nasc
+                            p.dia_atendimento = DiaSemana(nv_dia)
+                            p.frequencia = Frequencia(nv_freq)
+                            p.semana_do_mes = nv_semana
+                            p.paridade_quinzenal = nv_paridade
+                            p.dias_semana = nv_dia
+                            p.horario_atendimento = f"{nv_dia}={nv_hr}"
+                            p.valor_sessao = Decimal(str(nv_vl))
+                            p.ativo_desde = nv_ad
+                            db().commit()
+                            # Se algum campo de contrato mudou, abre novo periodo
+                            mudou = (
+                                antigo["frequencia"] != p.frequencia or
+                                Decimal(str(antigo["valor_sessao"])) != p.valor_sessao or
+                                (antigo["dias_semana"] or "") != (p.dias_semana or "") or
+                                antigo["semana_do_mes"] != p.semana_do_mes or
+                                antigo["paridade_quinzenal"] != p.paridade_quinzenal
+                            )
+                            if mudou:
+                                from app.services.contrato import abrir_periodo
+                                abrir_periodo(db(), p, datetime.now().date())
+                            del st.session_state[f"editar_{p.id_paciente}"]
+                            registrar(db(), st.session_state.username,
+                                      "PACIENTE_EDITADO", "alteracao de cadastro")
+                            # Detectar conflitos apos edicao
+                            from app.services.ocupacao import detectar_conflitos
+                            hj = datetime.now().date()
+                            r = detectar_conflitos(db(), p, hj.year, hj.month,
+                                                   id_excluir=p.id_paciente)
+                            st.session_state["ultimo_cad"] = {
+                                "nome": p.nome, "conflitos": r["conflitos"],
+                                "livres": len(r["datas_livres"]),
+                                "freq": p.frequencia.value,
+                                "paridade": p.paridade_quinzenal,
+                                "dia": (p.dias_semana or "").split(",")[0]}
+                            st.rerun()
                     if cb2.form_submit_button("Cancelar"):
                         del st.session_state[f"editar_{p.id_paciente}"]
                         st.rerun()

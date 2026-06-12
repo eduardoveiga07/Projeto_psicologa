@@ -5,6 +5,9 @@ from app.screens.shared import db, mostrar_flash, flash, Despesa, Perfil
 from app.services.financeiro import fmt_br, expandir_recorrentes, consolidado_periodo
 from app.services.pdf_export import gerar_pdf
 
+# Importa o validador de despesas
+from app.services.validacao_negocio import validar_valor_despesa
+
 
 def tela_financeiro():
     mostrar_flash()
@@ -135,13 +138,17 @@ def tela_financeiro():
                     format="DD/MM/YYYY", key=f"nvc_{d.id_despesa}")
                 cb1, cb2 = st.columns(2)
                 if cb1.form_submit_button("Salvar"):
-                    d.descricao = ndesc
-                    d.valor = Decimal(str(nval))
-                    d.data_vencimento = nvenc
-                    d.mes_referencia = f"{nvenc.year:04d}-{nvenc.month:02d}"
-                    db().commit()
-                    del st.session_state[f"edd_{d.id_despesa}"]
-                    st.rerun()
+                    ok_v, res_v = validar_valor_despesa(Decimal(str(nval)))
+                    if not ok_v:
+                        st.error(res_v)
+                    else:
+                        d.descricao = ndesc
+                        d.valor = Decimal(str(nval))
+                        d.data_vencimento = nvenc
+                        d.mes_referencia = f"{nvenc.year:04d}-{nvenc.month:02d}"
+                        db().commit()
+                        del st.session_state[f"edd_{d.id_despesa}"]
+                        st.rerun()
                 if cb2.form_submit_button("Cancelar"):
                     del st.session_state[f"edd_{d.id_despesa}"]
                     st.rerun()
@@ -194,8 +201,14 @@ def tela_financeiro():
                 venc = st.date_input("Vencimento", format="DD/MM/YYYY")
             if st.form_submit_button("Salvar"):
                 descricao = desc_livre if cat == "Outro (digitar)" else cat
+                ok_val, res_val = validar_valor_despesa(Decimal(str(val)))
+                
                 if not descricao or descricao == "— Selecione —":
                     st.error("Escolha uma categoria.")
+                elif not ok_val:
+                    st.error(res_val)
+                elif rec and tem_fim and (int(ano_fim), int(mes_fim_in)) < (int(ano_ini), int(mes_ini)):
+                    st.error("Mês fim não pode ser anterior ao Mês início.")
                 else:
                     if rec:
                         import calendar as cal2
@@ -204,7 +217,7 @@ def tela_financeiro():
                         venc_calc = date(int(ano_ini), int(mes_ini), dia)
                         mes_fim_str = (f"{int(ano_fim):04d}-{int(mes_fim_in):02d}"
                                        if tem_fim else None)
-                        eh_pass = (int(ano_ini), int(mes_ini)) < (hj_.year, hj_.month)
+                        eh_pass = (int(ano_ini), int(mes_ini)) < (hoje_.year, hoje_.month)
                         db().add(Despesa(descricao=descricao,
                             valor=Decimal(str(val)),
                             data_vencimento=venc_calc,
@@ -215,7 +228,7 @@ def tela_financeiro():
                             paga=eh_pass,
                             data_pagamento=venc_calc if eh_pass else None))
                     else:
-                        eh_pass = venc < hj_
+                        eh_pass = venc < hoje_
                         db().add(Despesa(descricao=descricao,
                             valor=Decimal(str(val)), data_vencimento=venc,
                             mes_referencia=f"{venc.year:04d}-{venc.month:02d}",
@@ -254,7 +267,11 @@ def tela_financeiro():
                         min_value=0.0, value=float(d.valor), step=50.0,
                         key=f"nvd_{d.id_despesa}")
                     if st.form_submit_button("Salvar"):
-                        d.valor = Decimal(str(nv))
-                        db().commit()
-                        del st.session_state[f"edd_{d.id_despesa}"]
-                        st.rerun()
+                        ok_v, res_v = validar_valor_despesa(Decimal(str(nv)))
+                        if not ok_v:
+                            st.error(res_v)
+                        else:
+                            d.valor = Decimal(str(nv))
+                            db().commit()
+                            del st.session_state[f"edd_{d.id_despesa}"]
+                            st.rerun()
