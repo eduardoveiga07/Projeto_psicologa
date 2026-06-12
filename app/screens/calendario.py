@@ -255,7 +255,7 @@ def tela_calendario():
                             if s.get("horario") and " - " in s["horario"]:
                                 try:
                                     cur_das, cur_ate = s["horario"].split(" - ")
-                                Except Exception:
+                                except Exception:
                                     pass
                             cm1, cm2 = st.columns(2)
                             nd = cm1.selectbox(f"{d_nome} — Das",
