@@ -1,5 +1,12 @@
 # Gestao Consultorio Psicologia - Modelo Teste
 
+Este sistema web em Streamlit gerencia o consultório de psicologia, integrando controle de pacientes, agenda, faturamento (previsto vs realizado), despesas, feriados, indisponibilidades, usuários e auditoria.
+
+## 📖 Documentação de Uso e Políticas
+- Para aprender a operar o sistema no dia a dia (agendamentos, pagamentos, despesas e relatórios), consulte o **[Manual de Uso da Profissional](file:///c:/Users/eduar/Downloads/projeto_consultorio/MANUAL_USO.md)**.
+- Para entender as práticas de segurança da informação e conformidade com a LGPD implementadas, consulte a **[Política Operacional de Privacidade](file:///c:/Users/eduar/Downloads/projeto_consultorio/POLITICA_PRIVACIDADE.md)**.
+- Para detalhes técnicos da arquitetura e infraestrutura, consulte a **[Documentação Técnica](file:///c:/Users/eduar/Downloads/projeto_consultorio/DOCUMENTACAO.md)**.
+
 ## Subir o sistema (Docker)
 ```
 docker compose up --build
