@@ -21,6 +21,7 @@ from app.screens.agenda import tela_agenda
 from app.screens.cadastro import tela_cadastro
 from app.screens.auditoria import tela_auditoria
 from app.screens.shared import db
+from app.version import __version__
 
 from app.auth.usuario_validacao import (
     normalizar_username,
@@ -121,4 +122,8 @@ else:
     permitidas = obter_telas_permitidas(perfil)
 
     aba = st.sidebar.radio("Menu", permitidas)
+    
+    st.sidebar.divider()
+    st.sidebar.caption(f"Versão: v{__version__}")
+    
     TODAS[aba]()

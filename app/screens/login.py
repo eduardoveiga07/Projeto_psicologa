@@ -10,6 +10,9 @@ from app.auth.usuario_validacao import (
     validar_username,
 )
 from app.auth.senha_policy import validar_senha
+from app.services.logger import get_logger
+
+logger = get_logger("login")
 
 
 def tela_login():
@@ -63,10 +66,12 @@ def tela_login():
                 st.session_state.username = user.username
                 st.session_state.perfil = user.perfil.value
                 st.session_state.last_active = datetime.now()
+                logger.info(f"Login bem-sucedido para o usuario '{user.username}' com perfil '{user.perfil.value}'")
                 registrar(db(), user.username, "LOGIN",
                           "login bem-sucedido")
                 st.rerun()
             else:
+                logger.warning(f"Tentativa de login malsucedida para o usuario '{u or '?'}'")
                 registrar(db(), u or "?", "LOGIN_FALHOU",
                           "tentativa de login invalida")
                 st.error("Credenciais inválidas.")
@@ -74,6 +79,7 @@ def tela_login():
         with st.form("reset_pedido"):
             em = st.text_input("Seu email cadastrado")
             if st.form_submit_button("Enviar código"):
+                logger.info(f"Solicitacao de redefinicao de senha para o e-mail '{em}'")
                 ok, msg = gerar_reset(db(), em)
                 st.info(msg)
     with st.expander("Tenho um código de redefinição"):
@@ -81,5 +87,10 @@ def tela_login():
             tk = st.text_input("Código recebido")
             ns = st.text_input("Nova senha", type="password")
             if st.form_submit_button("Trocar senha"):
+                logger.info("Tentando aplicar codigo de redefinicao de senha...")
                 ok, msg = aplicar_reset(db(), tk, ns)
+                if ok:
+                    logger.info("Senha redefinida com sucesso via codigo.")
+                else:
+                    logger.warning(f"Falha ao redefinir senha via codigo: {msg}")
                 (st.success if ok else st.error)(msg)

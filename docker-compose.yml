@@ -21,6 +21,8 @@ services:
     # Isola o app Streamlit da rede externa (porta acessível apenas para o Nginx internamente)
     expose:
       - "8501"
+    volumes:
+      - ./logs:/code/logs
 
   nginx:
     image: nginx:alpine

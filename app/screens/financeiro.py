@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import datetime, date
 from decimal import Decimal
-from app.screens.shared import db, mostrar_flash, flash, Despesa, Perfil
+from app.screens.shared import db, mostrar_flash, flash, Despesa, Perfil, ui_header, ui_kpi_card
 from app.services.financeiro import fmt_br, expandir_recorrentes, consolidado_periodo, historico_ultimos_meses
 from app.services.pdf_export import gerar_pdf
 
@@ -11,7 +11,7 @@ from app.services.validacao_negocio import validar_valor_despesa
 
 def tela_financeiro():
     mostrar_flash()
-    st.header("Financeiro — Previsto vs Realizado")
+    ui_header("Financeiro — Previsto vs Realizado", "Acompanhe o faturamento previsto, realizado, inadimplência e o controle de despesas do consultório.")
     c1, c2, c3 = st.columns(3)
     ano = c1.number_input("Ano", 2024, 2040, datetime.now().year)
     periodo = c2.selectbox("Período",
@@ -40,10 +40,14 @@ def tela_financeiro():
     r = consolidado_periodo(db(), int(ano), meses)
     st.subheader(f"Resultado: {rotulo}")
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Faturamento Previsto", fmt_br(r["faturamento_previsto"]))
-    k2.metric("Faturamento Realizado", fmt_br(r["faturamento_realizado"]))
-    k3.metric("Inadimplência / Pendente", fmt_br(r.get("inadimplencia", Decimal(0))))
-    k4.metric("Lucro Líquido", fmt_br(r["lucro_liquido"]))
+    with k1:
+        ui_kpi_card("Faturamento Previsto", fmt_br(r["faturamento_previsto"]), "Total esperado com base em todas as consultas cadastradas.")
+    with k2:
+        ui_kpi_card("Faturamento Realizado", fmt_br(r["faturamento_realizado"]), "Total efetivamente faturado por consultas realizadas ou cobradas.")
+    with k3:
+        ui_kpi_card("Inadimplência / Pendente", fmt_br(r.get("inadimplencia", Decimal(0))), "Total de faturamento realizado que ainda não foi pago (Pendente/Atrasado).")
+    with k4:
+        ui_kpi_card("Lucro Líquido", fmt_br(r["lucro_liquido"]), "Faturamento Realizado menos as Despesas do período.")
     st.caption(f"💰 Total de despesas: {fmt_br(r['total_despesas'])} — detalhe na seção '💸 Despesas do período' mais abaixo")
 
     if r["linhas"]:

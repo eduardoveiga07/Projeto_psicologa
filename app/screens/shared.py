@@ -60,3 +60,17 @@ def mostrar_flash():
     fn = {"success": st.success, "info": st.info,
           "warning": st.warning, "error": st.error}.get(f["tipo"], st.success)
     fn(f["msg"])
+
+
+def ui_header(titulo: str, subtitulo: str = None):
+    """Componente de cabeçalho padronizado e limpo para as telas."""
+    st.header(titulo)
+    if subtitulo:
+        st.caption(subtitulo)
+    st.divider()
+
+
+def ui_kpi_card(label: str, valor: str, help_text: str = None):
+    """Componente de métrica/KPI com design consistente."""
+    st.metric(label=label, value=valor, help=help_text)
+
