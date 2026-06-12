@@ -5,6 +5,7 @@ from app.screens.shared import (
     StatusPresenca, StatusPagamento, FAIXAS_HORARIO
 )
 from app.services.pdf_export import gerar_pdf
+from app.services.financeiro import fmt_br
 
 
 def tela_pagamentos():
@@ -66,8 +67,11 @@ def tela_pagamentos():
             "Situação": s.status_presenca.value,
             "Pagamento": s.status_pagamento.value,
             "Valor": float(p.valor_sessao) if p else 0})
+    totais_todos = {
+        "Valor": fmt_br(sum(l["Valor"] for l in todas))
+    }
     st.download_button("Baixar PDF (todos os pagamentos)",
-        gerar_pdf("Controle de Pagamentos", todas),
+        gerar_pdf("Controle de Pagamentos", todas, totais=totais_todos),
         file_name="pagamentos_todos.pdf", mime="application/pdf")
 
     for s in sessoes:
@@ -122,6 +126,9 @@ def tela_pagamentos():
             "Valor": float(p.valor_sessao) if p else 0})
     if linhas:
         st.dataframe(linhas, use_container_width=True)
+        totais_aberto = {
+            "Valor": fmt_br(sum(l["Valor"] for l in linhas))
+        }
         st.download_button("Baixar PDF (em aberto)",
-            gerar_pdf("Pagamentos em Aberto", linhas),
+            gerar_pdf("Pagamentos em Aberto", linhas, totais=totais_aberto),
             file_name="pagamentos_aberto.pdf", mime="application/pdf")

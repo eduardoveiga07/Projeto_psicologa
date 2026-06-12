@@ -62,10 +62,15 @@ def tela_auditoria():
         st.dataframe(linhas, use_container_width=True, height=350)
 
         # Botão de exportação PDF
-        pdf_titulo = f"Trilha de Auditoria - {d_ini.strftime('%d/%m/%Y')} a {d_fim.strftime('%d/%m/%Y')}"
+        pdf_titulo = "Trilha de Auditoria"
+        filtros_pdf = {
+            "Período": f"{d_ini.strftime('%d/%m/%Y')} a {d_fim.strftime('%d/%m/%Y')}",
+            "Usuário": user_sel,
+            "Ação": acao_sel
+        }
         st.download_button(
             label="📥 Baixar Relatório de Auditoria (PDF)",
-            data=gerar_pdf(pdf_titulo, linhas),
+            data=gerar_pdf(pdf_titulo, linhas, filtros=filtros_pdf),
             file_name=f"auditoria_{d_ini.strftime('%Y%m%d')}_{d_fim.strftime('%Y%m%d')}.pdf",
             mime="application/pdf"
         )

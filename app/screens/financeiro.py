@@ -161,8 +161,26 @@ def tela_financeiro():
     } for l in r["linhas"]]
     
     st.dataframe(fin_rows, use_container_width=True)
+    
+    # Construir os filtros e totais para a exportação de PDF
+    filtros_pdf = {"Ano": str(ano), "Período": periodo}
+    if periodo == "Mensal":
+        filtros_pdf["Mês"] = f"{int(m):02d}"
+    elif periodo == "Trimestral":
+        filtros_pdf["Trimestre"] = f"{t}º Trimestre"
+    elif periodo == "Semestral":
+        filtros_pdf["Semestre"] = f"{sm}º Semestre"
+        
+    totais_pdf = {
+        "Sessões Previstas": str(sum(l["sessoes_previstas"] for l in r["linhas"])),
+        "Faturamento Previsto": fmt_br(r["faturamento_previsto"]),
+        "Sessões Realizadas": str(sum(l["sessoes_realizadas"] for l in r["linhas"])),
+        "Faturamento Realizado": fmt_br(r["faturamento_realizado"]),
+        "Inadimplência / Pendente": fmt_br(r.get("inadimplencia", Decimal(0)))
+    }
+    
     st.download_button("Baixar PDF",
-        gerar_pdf(f"Financeiro — {rotulo}", fin_rows),
+        gerar_pdf(f"Financeiro — {rotulo}", fin_rows, filtros=filtros_pdf, totais=totais_pdf),
         file_name=f"financeiro_{rotulo.replace('/', '_')}.pdf", mime="application/pdf")
 
     # ===== DESPESAS DETALHADAS =====
