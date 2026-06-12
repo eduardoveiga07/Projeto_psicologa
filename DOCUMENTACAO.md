@@ -462,26 +462,44 @@ Pontos recomendados para producao:
 - configurar SMTP real;
 - usar senha forte no PostgreSQL;
 - usar senha forte em `BOOTSTRAP_ADMIN_PASSWORD`, caso o bootstrap automatico seja usado;
-- proteger o acesso ao Streamlit com HTTPS/reverse proxy;
+- Nginx implantado como reverse proxy e porta do Streamlit (8501) isolada do acesso publico direto;
 - revisar `.env` para garantir que nao seja versionado;
 - executar e armazenar backups regulares fora da maquina local;
 - aplicar Alembic no processo de deploy antes de subir a aplicacao;
 
+## Infraestrutura de Producao, Nginx e HTTPS
+
+A aplicacao possui uma infraestrutura conteinerizada preparada para producao:
+
+1. **Proxy Reverso (Nginx)**: O container `nginx` escuta nas portas publicas `80` e `443` e encapsula as conexoes direcionando-as internamente ao container `app` (porta `8501`).
+2. **Seguranca HTTPS**: Suporta TLSv1.2 e TLSv1.3 e cifras fortes, com desativacao de protocolos antigos e cabeçalhos HTTP de protecao (`X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, e CSP rigorosa com WebSockets).
+3. **Ambiente Local (Certificados Autoassinados)**: Disponibilizados os scripts `nginx/gerar_ssl_local.ps1` (PowerShell) e `nginx/gerar_ssl_local.sh` (Bash) que utilizam o docker com `alpine/openssl` para gerar credenciais locais autoassinadas para testes em desenvolvimento.
+4. **Deploy Controlado em Producao**:
+   - Para obter certificados reais do Let's Encrypt usando o Certbot, suba temporariamente uma regra HTTP simples no Nginx para o desafio ACME ou execute o certbot com a pasta `nginx/html` mapeada.
+   - O fluxo padrao recomendado para atualizacoes em producao eh:
+     1. Backup do banco (`scripts/backup_db.ps1`).
+     2. Puxar as mudancas do git (`git pull`).
+     3. Rodar as migrações do banco com `alembic upgrade head`.
+     4. Recriar e reiniciar contêineres (`docker compose up --build -d`).
+
 ## Exportacao de PDF
 
-O arquivo `app/services/pdf_export.py` gera PDFs simples com ReportLab a partir de listas de dicionarios.
+O modulo [pdf_export.py](file:///c:/Users/eduar/Downloads/projeto_consultorio/app/services/pdf_export.py) gera relatorios PDF no formato paisagem (A4) usando ReportLab. 
 
-E usado para relatorios como feriados, pagamentos e dados financeiros exibidos na interface.
+Pontos implementados:
+- **NumberedCanvas**: Paginação dinamica de duas passagens no formato `"Página X de Y"` e nota de confidencialidade LGPD.
+- **Cabeçalho de Filtros**: Renderiza um painel com os filtros aplicados no topo se informados no parametro `filtros`.
+- **Linha de Totais**: Adiciona uma linha destacada ao final da tabela com totais em negrito e fundo cinza se informada no parametro `totais`.
 
-## Pontos de atencao encontrados
+## Suite de Testes
 
-1. O README atual e resumido; este documento detalha melhor a arquitetura e regras.
-2. A suite de testes ainda e inicial e nao cobre fluxos com banco de dados.
-3. O app ainda mantem migracao simples de compatibilidade em `session.py`.
+A suite de testes foi expandida para cobrir:
+- Validação de regras e seguranca de perfil na tela de auditoria.
+- Lógica de faturamento e inadimplência usando banco de dados SQLite em memoria (`tests/test_financeiro_db.py`).
+- Geração fisica e integridade binaria de PDFs (`tests/test_pdf_export.py`).
 
-## Sugestoes de proximos passos
+Execute os testes com:
+```bash
+python -m unittest discover -s tests
+```
 
-1. Ampliar testes para contrato historico, remarcacoes e fluxos com banco.
-2. Migrar totalmente o bootstrap do banco para Alembic em ambiente de producao.
-3. Automatizar rotina de backup em ambiente de producao.
-4. Criar uma documentacao de uso para a profissional e outra tecnica para manutencao.

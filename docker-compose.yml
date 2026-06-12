@@ -18,8 +18,26 @@ services:
       db:
         condition: service_healthy
     env_file: .env
+    # Isola o app Streamlit da rede externa (porta acessível apenas para o Nginx internamente)
+    expose:
+      - "8501"
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - app
     ports:
-      - "8501:8501"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+    restart: always
 
 volumes:
   pgdata_v3:
+  certbot-etc:
+  certbot-var:

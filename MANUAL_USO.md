@@ -14,6 +14,7 @@ Bem-vindo(a) ao manual de instruções da sua ferramenta de gestão de consultó
 7. [Gestão de Usuários (Apenas Administrador)](#7-gestao-de-usuarios-apenas-administrador)
 8. [Exportação de Relatórios PDF e LGPD](#8-exportacao-de-relatorios-pdf-e-lgpd)
 9. [Rotina de Backup e Restauração (Técnico/Segurança)](#9-rotina-de-backup-e-restauracao-tecnicoseguranca)
+10. [Configuração de Produção e HTTPS (Infraestrutura/Segurança)](#10-configuracao-de-producao-e-https-infraestruturaseguranca)
 
 ---
 
@@ -240,3 +241,43 @@ Se você precisar reinstalar o sistema ou recuperar os dados de uma data anterio
    ```
 4. O script exibirá um aviso alertando que todos os dados atuais serão substituídos e exigirá que você digite a palavra **`RESTAURAR`** (tudo em maiúsculas) para confirmar a operação.
 5. Digite e pressione Enter. O banco de dados será limpo e restaurado para o estado exato daquele backup.
+
+---
+
+## 10. Configuração de Produção e HTTPS (Infraestrutura/Segurança)
+
+Para garantir a total segurança dos dados confidenciais de saúde de seus pacientes (conforme exigido pela LGPD), a aplicação em produção deve rodar sob criptografia SSL/HTTPS.
+
+### A. Funcionamento da Segurança
+* **Porta Protegida**: O aplicativo Streamlit (porta `8501`) é totalmente isolado e fica inacessível diretamente pela internet.
+* **Nginx**: Atua como o único intermediário nas portas públicas padrão da internet: `80` (HTTP) e `443` (HTTPS).
+* **HTTPS**: Criptografa a conexão de ponta a ponta (ativando o símbolo de cadeado de segurança no navegador da psicóloga).
+
+### B. Inicialização Local (Modo Desenvolvimento com SSL Autoassinado)
+Para testar a segurança HTTPS no seu computador local:
+1. Abra o terminal (PowerShell) na pasta raiz do projeto.
+2. Execute o script para gerar os certificados locais temporários:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File nginx/gerar_ssl_local.ps1
+   ```
+3. Suba a aplicação Docker normalmente:
+   ```bash
+   docker compose up --build -d
+   ```
+4. Acesse a aplicação em: `https://localhost` (o navegador mostrará um aviso de certificado autoassinado/não confiável porque é local, mas a conexão estará criptografada para teste).
+
+### C. Publicação em Produção (Let's Encrypt - Gratuito e Oficial)
+Quando for implantar o sistema em um servidor na nuvem (ex: AWS, DigitalOcean, Azure) com um domínio real (ex: `sistema.consultorio.com.br`):
+1. **Apontamento**: Aponte o seu domínio (registro DNS do tipo `A`) para o IP público do seu servidor.
+2. **Obtenção do Certificado**: Execute o Certbot Let's Encrypt no servidor para obter os arquivos oficiais de chave e certificado:
+   ```bash
+   sudo certbot certonly --standalone -d seu-dominio.com -d www.seu-dominio.com
+   ```
+3. **Mapeamento**: Copie ou aponte os certificados oficiais gerados pelo Certbot (`fullchain.pem` e `privkey.pem`) para a pasta do projeto `nginx/certs/`.
+4. **Reinicie a Infraestrutura**:
+   ```bash
+   docker compose down
+   docker compose up --build -d
+   ```
+A partir de agora, a psicóloga poderá acessar o endereço `https://seu-dominio.com` de qualquer computador com segurança de nível bancário e conformidade LGPD.
+
