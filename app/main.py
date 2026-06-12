@@ -135,6 +135,132 @@ def mostrar_flash():
     fn(f["msg"])
 
 
+@st.dialog("Confirmar Exclusão de Paciente")
+def confirmar_exclusao_paciente(p_id, p_nome):
+    st.warning(f"⚠️ Atenção: Você está prestes a excluir permanentemente o(a) paciente **{p_nome}**.")
+    st.write("Esta ação é **irreversível**. Ao confirmar, todos os dados do paciente (sessões, histórico de contratos e exceções de horários) serão excluídos definitivamente (exclusão física - LGPD).")
+    
+    confirmacao_texto = st.text_input("Para prosseguir, digite 'EXCLUIR' no campo abaixo:")
+    
+    c1, c2 = st.columns(2)
+    if c1.button("Confirmar Exclusão", type="primary", disabled=(confirmacao_texto != "EXCLUIR")):
+        from app.db.models import AgendaSessao, ContratoHistorico, ExcecaoHorario
+        s = db()
+        try:
+            s.query(AgendaSessao).filter(AgendaSessao.id_paciente == p_id).delete()
+            s.query(ContratoHistorico).filter(ContratoHistorico.id_paciente == p_id).delete()
+            s.query(ExcecaoHorario).filter(ExcecaoHorario.id_paciente == p_id).delete()
+            p = s.query(Paciente).get(p_id)
+            if p:
+                s.delete(p)
+            s.commit()
+            invalidar_cache()
+            registrar(s, st.session_state.username, "PACIENTE_EXCLUIDO", "manual")
+            flash(f"Paciente '{p_nome}' foi excluído permanentemente.", "success")
+        except Exception as e:
+            s.rollback()
+            flash(f"Erro ao excluir paciente: {str(e)}", "error")
+        st.rerun()
+        
+    if c2.button("Cancelar"):
+        st.rerun()
+
+
+
+@st.dialog("Exportar Dados do Paciente (LGPD)")
+def exportar_paciente_dialog(p_id, p_nome):
+    st.write(f"Gerando relatório completo de portabilidade para o(a) paciente **{p_nome}**.")
+    st.write("Isso inclui dados cadastrais, histórico de vigência de contratos, exceções de horários e sessões agendadas/realizadas.")
+    
+    s = db()
+    p = s.query(Paciente).get(p_id)
+    if not p:
+        st.error("Paciente não encontrado.")
+        return
+        
+    from app.db.models import ContratoHistorico, AgendaSessao, ExcecaoHorario
+    contratos = s.query(ContratoHistorico).filter(ContratoHistorico.id_paciente == p_id).all()
+    sessoes = s.query(AgendaSessao).filter(AgendaSessao.id_paciente == p_id).all()
+    excecoes = s.query(ExcecaoHorario).filter(ExcecaoHorario.id_paciente == p_id).all()
+    
+    import json
+    from datetime import datetime, date
+    from decimal import Decimal
+    
+    def json_serial(obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, Decimal):
+            return float(obj)
+        raise TypeError(f"Type {type(obj)} not serializable")
+        
+    dados_exportacao = {
+        "exportado_em": datetime.now().isoformat(),
+        "paciente": {
+            "id_paciente": str(p.id_paciente),
+            "nome": p.nome,
+            "telefone": p.telefone,
+            "email": p.email,
+            "data_nascimento": p.data_nascimento.isoformat() if p.data_nascimento else None,
+            "tipo_contrato": p.tipo_contrato.value if p.tipo_contrato else None,
+            "valor_sessao": float(p.valor_sessao),
+            "frequencia": p.frequencia.value if p.frequencia else None,
+            "dias_semana": p.dias_semana,
+            "horario_atendimento": p.horario_atendimento,
+            "status": p.status.value if p.status else None,
+            "ativo_desde": p.ativo_desde.isoformat() if p.ativo_desde else None,
+            "em_avaliacao": p.em_avaliacao,
+            "data_desativacao": p.data_desativacao.isoformat() if p.data_desativacao else None,
+            "criado_em": p.criado_em.isoformat() if p.criado_em else None
+        },
+        "historico_contratos": [
+            {
+                "vigente_de": c.vigente_de.isoformat() if c.vigente_de else None,
+                "vigente_ate": c.vigente_ate.isoformat() if c.vigente_ate else None,
+                "frequencia": c.frequencia.value if c.frequencia else None,
+                "valor_sessao": float(c.valor_sessao),
+                "dias_semana": c.dias_semana,
+                "semana_do_mes": c.semana_do_mes,
+                "paridade_quinzenal": c.paridade_quinzenal,
+                "sessoes_mes_custom": c.sessoes_mes_custom,
+                "criado_em": c.criado_em.isoformat() if c.criado_em else None
+            } for c in contratos
+        ],
+        "excecoes_horario": [
+            {
+                "tipo": e.tipo,
+                "semana_do_mes": e.semana_do_mes,
+                "data_especifica": e.data_especifica.isoformat() if e.data_especifica else None,
+                "dia_alvo": e.dia_alvo,
+                "horario_alvo": e.horario_alvo
+            } for e in excecoes
+        ],
+        "sessoes": [
+            {
+                "data_hora_inicio": s_sess.data_hora_inicio.isoformat() if s_sess.data_hora_inicio else None,
+                "data_hora_fim": s_sess.data_hora_fim.isoformat() if s_sess.data_hora_fim else None,
+                "status_presenca": s_sess.status_presenca.value if s_sess.status_presenca else None,
+                "status_pagamento": s_sess.status_pagamento.value if s_sess.status_pagamento else None,
+                "confirmacao_enviada": s_sess.confirmacao_enviada,
+                "remarcada_de": s_sess.remarcada_de.isoformat() if s_sess.remarcada_de else None,
+                "remarcada_motivo": s_sess.remarcada_motivo
+            } for s_sess in sessoes
+        ]
+    }
+    
+    json_str = json.dumps(dados_exportacao, default=json_serial, indent=2, ensure_ascii=False)
+    
+    st.success("Relatório de portabilidade compilado com sucesso!")
+    st.download_button(
+        label="Baixar Arquivo JSON",
+        data=json_str,
+        file_name=f"portabilidade_lgpd_{p.nome.lower().replace(' ', '_')}.json",
+        mime="application/json"
+    )
+    if st.button("Fechar", key="fechar_export_dialog"):
+        st.rerun()
+
+
 # ---------- LOGIN ----------
 def tela_login():
     st.title("Gestão Consultório - Login")
@@ -520,7 +646,7 @@ def tela_cadastro():
                 dur_min = int((sess_av.data_hora_fim - sess_av.data_hora_inicio).total_seconds() // 60)
                 quando = (f" — 📅 {sess_av.data_hora_inicio.strftime('%d/%m/%Y %H:%M')}"
                           f" ({dur_min}min)")
-            c1, c2, c3, c4, c5 = st.columns([4, 2, 1, 1, 1])
+            c1, c2, c3, c4, c5, c6 = st.columns([4, 2, 0.8, 0.8, 0.8, 0.8])
             c1.markdown(f"**{p.nome}** — 📱 {p.telefone}{quando}  \n"
                         f"📧 `{p.email or '—'}` | 🎂 "
                         f"{p.data_nascimento.strftime('%d/%m/%Y') if p.data_nascimento else '—'}")
@@ -531,9 +657,9 @@ def tela_cadastro():
             if c4.button("Recorrente", key=f"rec_{p.id_paciente}"):
                 st.session_state[f"converter_{p.id_paciente}"] = True
             if c5.button("Excluir", key=f"delav_{p.id_paciente}"):
-                db().query(AgendaSessao).filter(
-                    AgendaSessao.id_paciente == p.id_paciente).delete()
-                db().delete(p); db().commit(); st.rerun()
+                confirmar_exclusao_paciente(p.id_paciente, p.nome)
+            if c6.button("📥", key=f"expav_{p.id_paciente}", help="Exportar todos os dados do paciente (Portabilidade/LGPD)"):
+                exportar_paciente_dialog(p.id_paciente, p.nome)
             # Form de edição
             if st.session_state.get(f"edit_av_{p.id_paciente}"):
                 with st.form(f"feav_{p.id_paciente}"):
@@ -598,7 +724,7 @@ def tela_cadastro():
         st.caption("Pacientes inativos por mais de 2 anos são excluídos "
                    "automaticamente do banco (LGPD - retenção mínima).")
         for p in inativos:
-            c1, c2, c3 = st.columns([5, 1, 1])
+            c1, c2, c3, c4 = st.columns([5, 0.8, 0.8, 0.8])
             dd = p.data_desativacao.strftime("%d/%m/%Y") if p.data_desativacao else "?"
             c1.write(f"**{p.nome}** — {p.telefone} — inativo desde {dd}")
             if c2.button("Reativar", key=f"rea_{p.id_paciente}"):
@@ -609,10 +735,9 @@ def tela_cadastro():
                           "PACIENTE_REATIVADO", "")
                 st.rerun()
             if c3.button("Excluir", key=f"del_{p.id_paciente}"):
-                db().query(AgendaSessao).filter(AgendaSessao.id_paciente == p.id_paciente).delete(); db().delete(p); db().commit()
-                registrar(db(), st.session_state.username,
-                          "PACIENTE_EXCLUIDO", "manual")
-                st.rerun()
+                confirmar_exclusao_paciente(p.id_paciente, p.nome)
+            if c4.button("📥", key=f"expin_{p.id_paciente}", help="Exportar todos os dados do paciente (Portabilidade/LGPD)"):
+                exportar_paciente_dialog(p.id_paciente, p.nome)
 
     with st.expander("👥 Ver pacientes ativos recorrentes"):
         ativos = db().query(Paciente).filter(
@@ -621,7 +746,7 @@ def tela_cadastro():
         if not ativos:
             st.info("Nenhum paciente recorrente.")
         for p in ativos:
-            c1, c2, c3, c4 = st.columns([5, 1, 1, 1])
+            c1, c2, c3, c4, c5 = st.columns([5, 0.8, 0.8, 0.8, 0.8])
             ad = p.ativo_desde.strftime("%d/%m/%Y") if p.ativo_desde else "?"
             nasc = p.data_nascimento.strftime("%d/%m/%Y") if p.data_nascimento else "?"
             # Descricao da recorrencia, formato amigavel
@@ -673,6 +798,8 @@ def tela_cadastro():
                 registrar(db(), st.session_state.username,
                           "PACIENTE_DESATIVADO", "")
                 st.rerun()
+            if c5.button("📥", key=f"exp_{p.id_paciente}", help="Exportar todos os dados do paciente (Portabilidade/LGPD)"):
+                exportar_paciente_dialog(p.id_paciente, p.nome)
             if st.session_state.get(f"editar_{p.id_paciente}"):
                 # Frequencia FORA do form para reagir imediatamente
                 nv_freq = st.selectbox("Frequência",
@@ -961,7 +1088,7 @@ def tela_agenda():
                                     invalidar_cache()
                                     registrar(db(), st.session_state.username,
                                               "SESSAO_REMARCADA",
-                                              f"{nome} {dt}->{nd} {nh}")
+                                              f"paciente_id={p_obj.id_paciente} {dt}->{nd} {nh}")
                                     del st.session_state[f"rmk_open_{pk}"]
                                     flash(f"Sessão de {nome} remarcada "
                                           f"de {dt.strftime('%d/%m')} para "

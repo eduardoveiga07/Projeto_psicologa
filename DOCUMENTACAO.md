@@ -450,10 +450,12 @@ Pontos implementados:
 - politica minima de senha;
 - timeout de sessao apos 15 minutos;
 - perfis com permissoes por modulo;
-- auditoria de eventos criticos;
-- recomendacao explicita para nao registrar dados sensiveis em auditoria;
-- remocao automatica de pacientes inativos ha mais de 2 anos;
-- banco Docker nao exposto diretamente por porta.
+- auditoria de eventos criticos sem gravar dados sensiveis (ex: remarcação utiliza UUID em vez de nome do paciente);
+- remocao automatica de pacientes inativos ha mais de 2 anos (descarte automático);
+- exclusao manual segura de pacientes exigindo confirmacao digitando 'EXCLUIR' em caixa de dialogo modal;
+- exportacao/portabilidade de dados do paciente em formato JSON estruturado por meio do botao `📥` nas listagens;
+- banco Docker nao exposto diretamente por porta;
+- documentacao da politica operacional em [POLITICA_PRIVACIDADE.md](file:///c:/Users/eduar/Downloads/projeto_consultorio/POLITICA_PRIVACIDADE.md).
 
 Pontos recomendados para producao:
 
