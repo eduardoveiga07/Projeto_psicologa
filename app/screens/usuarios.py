@@ -40,9 +40,9 @@ def tela_usuarios():
                 st.error(msg_s)
             elif db().query(Usuario).filter(Usuario.username == un).first():
                 st.error("Usuário já existe.")
-            else:
                 db().add(Usuario(username=un, nome=nm, email=em,
-                    senha_hash=gerar_hash(sn), perfil=Perfil(pf), ativo=True))
+                    senha_hash=gerar_hash(sn), perfil=Perfil(pf), ativo=True,
+                    trocar_senha_proximo_login=True))
                 db().commit()
                 registrar(db(), st.session_state.username,
                           "USUARIO_CRIADO", f"perfil={pf}")

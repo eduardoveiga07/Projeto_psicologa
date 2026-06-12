@@ -17,6 +17,46 @@ logger = get_logger("login")
 
 def tela_login():
     st.title("Gestão Consultório - Login")
+    
+    # Fluxo de Troca de Senha Obrigatória no Primeiro Acesso
+    if "troca_senha_obrigatoria_username" in st.session_state:
+        username_troca = st.session_state.troca_senha_obrigatoria_username
+        st.warning(f"Troca de senha obrigatória para o usuário '{username_troca}' no primeiro acesso.")
+        with st.form("form_troca_obrigatoria"):
+            ns = st.text_input("Nova Senha", type="password", help="Min. 6 letras + 1 número + 1 caractere especial")
+            cf = st.text_input("Confirmar Nova Senha", type="password")
+            if st.form_submit_button("Atualizar Senha e Entrar"):
+                ok_s, msg_s = validar_senha(ns)
+                if not ok_s:
+                    st.error(msg_s)
+                elif ns != cf:
+                    st.error("As senhas não conferem.")
+                else:
+                    user = db().query(Usuario).filter(Usuario.username == username_troca).first()
+                    if user:
+                        user.senha_hash = gerar_hash(ns)
+                        user.trocar_senha_proximo_login = False
+                        db().commit()
+                        
+                        # Efetua o login direto
+                        st.session_state.user = user.nome
+                        st.session_state.username = user.username
+                        st.session_state.perfil = user.perfil.value
+                        st.session_state.last_active = datetime.now()
+                        
+                        del st.session_state.troca_senha_obrigatoria_username
+                        
+                        logger.info(f"Senha inicial alterada obrigatoriamente para o usuario '{user.username}'")
+                        registrar(db(), user.username, "TROCA_SENHA_OBRIGATORIA", "senha inicial redefinida")
+                        st.success("Senha atualizada com sucesso! Entrando...")
+                        st.rerun()
+                    else:
+                        st.error("Erro interno. Usuário não encontrado.")
+        if st.button("Voltar ao Login"):
+            del st.session_state.troca_senha_obrigatoria_username
+            st.rerun()
+        return
+
     sem_usuarios = db().query(Usuario.id_usuario).first() is None
     if sem_usuarios:
         st.warning("Nenhum usuario cadastrado. Crie o primeiro acesso administrativo.")
@@ -50,7 +90,7 @@ def tela_login():
                     else:
                         db().add(Usuario(username=un, nome=nm, email=em,
                             senha_hash=gerar_hash(sn), perfil=Perfil.DONA,
-                            ativo=True))
+                            ativo=True, trocar_senha_proximo_login=False))
                         db().commit()
                         registrar(db(), un, "PRIMEIRO_USUARIO_CRIADO",
                                   "perfil=Dona")
@@ -60,21 +100,24 @@ def tela_login():
         u = st.text_input("Usuário")
         p = st.text_input("Senha", type="password")
         if st.form_submit_button("Entrar"):
-            user = autenticar(db(), u, p)
+            user, status_ou_erro = autenticar(db(), u, p)
             if user:
-                st.session_state.user = user.nome
-                st.session_state.username = user.username
-                st.session_state.perfil = user.perfil.value
-                st.session_state.last_active = datetime.now()
-                logger.info(f"Login bem-sucedido para o usuario '{user.username}' com perfil '{user.perfil.value}'")
-                registrar(db(), user.username, "LOGIN",
-                          "login bem-sucedido")
-                st.rerun()
+                if status_ou_erro == "trocar_senha":
+                    st.session_state.troca_senha_obrigatoria_username = user.username
+                    st.rerun()
+                else:
+                    st.session_state.user = user.nome
+                    st.session_state.username = user.username
+                    st.session_state.perfil = user.perfil.value
+                    st.session_state.last_active = datetime.now()
+                    logger.info(f"Login bem-sucedido para o usuario '{user.username}' com perfil '{user.perfil.value}'")
+                    registrar(db(), user.username, "LOGIN",
+                              "login bem-sucedido")
+                    st.rerun()
             else:
-                logger.warning(f"Tentativa de login malsucedida para o usuario '{u or '?'}'")
-                registrar(db(), u or "?", "LOGIN_FALHOU",
-                          "tentativa de login invalida")
-                st.error("Credenciais inválidas.")
+                logger.warning(f"Tentativa de login malsucedida para o usuario '{u or '?'}'. Detalhe: {status_ou_erro}")
+                registrar(db(), u or "?", "LOGIN_FALHOU", status_ou_erro)
+                st.error(status_ou_erro)
     with st.expander("Esqueci minha senha"):
         with st.form("reset_pedido"):
             em = st.text_input("Seu email cadastrado")

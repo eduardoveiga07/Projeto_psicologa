@@ -8,6 +8,8 @@ ENV LANG=pt_BR.UTF-8 LC_ALL=pt_BR.UTF-8
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+COPY migrations ./migrations
+COPY alembic.ini .
 ENV PYTHONPATH=/code
 # Privilegio minimo: cria e usa usuario nao-root.
 RUN useradd -m appuser && chown -R appuser /code

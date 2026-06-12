@@ -405,22 +405,26 @@ previsao financeira sem depender de PostgreSQL.
 
 ## Backup e restauracao
 
-Os scripts operacionais ficam em `scripts/`:
+Os scripts operacionais em Python ficam em `scripts/` e fornecem criptografia simétrica forte via AES-256 (Fernet):
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/backup_db.ps1
-powershell -ExecutionPolicy Bypass -File scripts/restore_db.ps1 -BackupFile backups/NOME_DO_ARQUIVO.dump
-```
+* **Geração de backup criptografado**:
+  ```bash
+  python scripts/backup_db.py
+  ```
+* **Restauração de backup criptografado**:
+  ```bash
+  python scripts/restaurar_db.py backups/NOME_DO_ARQUIVO.pgdump.enc
+  ```
+* **Teste de restaurabilidade (integridade)**:
+  ```bash
+  python scripts/testar_restauracao.py
+  ```
 
-O backup usa `pg_dump` em formato custom (`.dump`) dentro do servico Docker
-`db` e copia o arquivo para `backups/`. A restauracao usa `pg_restore` com
-`--clean --if-exists --no-owner` e exige confirmacao digitando `RESTAURAR`.
-
-O diretorio `backups/` fica no `.gitignore`.
+Os arquivos criptografados gerados possuem extensão `.pgdump.enc` e a pasta `backups/` é ignorada no Git.
 
 ## Variaveis de ambiente
 
-Baseadas em `.env.example`:
+Baseadas em `.env.example`, `.env.dev` e `.env.prod`:
 
 | Variavel | Uso |
 | --- | --- |
@@ -428,6 +432,10 @@ Baseadas em `.env.example`:
 | `POSTGRES_PASSWORD` | Senha do PostgreSQL |
 | `POSTGRES_DB` | Nome do banco |
 | `DATABASE_URL` | String de conexao usada pelo SQLAlchemy |
+| `BACKUP_ENCRYPTION_KEY` | Chave de criptografia AES Fernet (32 bytes em base64) para backups |
+| `BACKUP_DIR` | Diretorio destino dos arquivos de backup |
+| `BACKUP_RETENTION_COUNT` | Quantidade de arquivos mantidos na rotacao de backup |
+| `AMBIENTE` | Ambiente de execucao (`desenvolvimento` ou `producao`) |
 | `BOOTSTRAP_ADMIN_USERNAME` | Login do primeiro administrador automatico, padrao `dona` |
 | `BOOTSTRAP_ADMIN_NAME` | Nome do primeiro administrador automatico |
 | `BOOTSTRAP_ADMIN_EMAIL` | Email do primeiro administrador automatico |
@@ -437,8 +445,10 @@ Baseadas em `.env.example`:
 | `SMTP_USER` | Usuario SMTP |
 | `SMTP_PASS` | Senha SMTP |
 | `SMTP_FROM` | Remetente dos emails |
+| `RETENCAO_PACIENTES_DIAS` | Dias de inatividade de pacientes antes da exclusao automatica LGPD |
+| `RETENCAO_AUDITORIA_DIAS` | Dias de armazenamento de logs de auditoria antes da limpeza automatica LGPD |
 
-Se o SMTP nao estiver configurado, o codigo de redefinicao de senha aparece na tela em modo de desenvolvimento.
+Se o SMTP nao estiver configurado, o codigo de redefinicao de senha aparece nos logs tecnicos mascarados da aplicacao.
 
 ## Seguranca e LGPD
 
@@ -450,11 +460,14 @@ Pontos implementados:
 - politica minima de senha;
 - timeout de sessao apos 15 minutos;
 - perfis com permissoes por modulo;
-- auditoria de eventos criticos sem gravar dados sensiveis (ex: remarcação utiliza UUID em vez de nome do paciente);
-- remocao automatica de pacientes inativos ha mais de 2 anos (descarte automático);
+- bloqueio temporario de conta por 15 minutos apos 5 tentativas malsucedidas de login seguidas;
+- redefinicao obrigatoria de senha inicial no primeiro acesso do usuario;
+- mascara automatica de chaves, tokens e senhas no logger tecnico de diagnostico;
+- auditoria de eventos criticos sem gravar dados sensiveis (ex: marcando UUID em vez de nome do paciente);
+- remocao automatica de pacientes inativos e logs de auditoria antigos respeitando a politica de retencao LGPD parametrizavel;
 - exclusao manual segura de pacientes exigindo confirmacao digitando 'EXCLUIR' em caixa de dialogo modal;
 - exportacao/portabilidade de dados do paciente em formato JSON estruturado por meio do botao `📥` nas listagens;
-- banco Docker nao exposto diretamente por porta;
+- banco Docker nao exposto diretamente por porta em producao (porta fechada por padrao);
 - documentacao da politica operacional em [POLITICA_PRIVACIDADE.md](file:///c:/Users/eduar/Downloads/projeto_consultorio/POLITICA_PRIVACIDADE.md).
 
 Pontos recomendados para producao:

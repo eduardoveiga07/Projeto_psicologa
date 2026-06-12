@@ -48,6 +48,11 @@ def _migrar_colunas():
 def criar_tabelas():
     """Cria tabelas e adiciona colunas faltantes. Espera o Postgres subir."""
     import time
+    ambiente = os.getenv("AMBIENTE", "desenvolvimento").lower()
+    if ambiente == "producao":
+        logger.info("Ambiente de PRODUCAO detectado. Inicializacao automatica SQLAlchemy desativada (depende do Alembic).")
+        return
+        
     logger.info("Iniciando a verificacao/criacao das tabelas do banco de dados...")
     for i in range(15):
         try:

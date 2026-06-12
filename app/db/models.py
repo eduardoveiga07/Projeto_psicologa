@@ -185,6 +185,9 @@ class Usuario(Base):
     perfil = Column(Enum(Perfil), nullable=False, default=Perfil.SECRETARIA)
     reset_token = Column(String(80), nullable=True)
     reset_expira = Column(DateTime, nullable=True)
+    tentativas_login = Column(Integer, default=0, nullable=False)
+    bloqueado_ate = Column(DateTime, nullable=True)
+    trocar_senha_proximo_login = Column(Boolean, default=False, nullable=False)
 
 
 class Auditoria(Base):

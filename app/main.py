@@ -64,26 +64,18 @@ def _bootstrap():
 
 _bootstrap()
 
-# LGPD: auto-exclui pacientes inativos ha mais de 2 anos.
+# LGPD: auto-exclui pacientes inativos e logs antigos de acordo com a politica de retencao.
 @st.cache_resource
-def _limpar_inativos_antigos():
-    from datetime import timedelta
+def _executar_retencao_lgpd():
+    from app.services.retencao_lgpd import executar_limpeza_lgpd
     s = get_session()
     try:
-        limite = datetime.now().date() - timedelta(days=730)
-        antigos = s.query(Paciente).filter(
-            Paciente.status == StatusPaciente.INATIVO,
-            Paciente.data_desativacao != None,  # noqa: E711
-            Paciente.data_desativacao < limite).all()
-        for p in antigos:
-            s.delete(p)
-        s.commit()
-    except Exception:
-        s.rollback()
+        executar_limpeza_lgpd(s)
     finally:
         s.close()
     return True
-_limpar_inativos_antigos()
+_executar_retencao_lgpd()
+
 
 
 # ---------- ROUTER ----------

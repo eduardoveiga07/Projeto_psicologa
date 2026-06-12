@@ -10,7 +10,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    # Sem 'ports:' -> banco NAO exposto a internet, so rede interna.
+    ports:
+      - "5432:5432"
+    # Sem 'ports:' em producao -> banco NAO exposto a internet, so rede interna.
 
   app:
     build: .
@@ -18,6 +20,7 @@ services:
       db:
         condition: service_healthy
     env_file: .env
+    command: sh -c "alembic upgrade head && streamlit run app/main.py --server.address=0.0.0.0 --server.port=8501"
     # Isola o app Streamlit da rede externa (porta acessível apenas para o Nginx internamente)
     expose:
       - "8501"

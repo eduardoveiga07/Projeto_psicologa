@@ -207,40 +207,46 @@ Em diversos módulos do sistema (Cadastro de Pacientes, Calendário de Feriados,
 ### B. Exportação LGPD (Portabilidade)
 Se um paciente solicitar cópia de todos os seus dados guardados:
 1. Acesse a tela de **Cadastro**.
-2. Localize o paciente nas listas de ativos, inativos ou em avaliação.
-3. Clique no botão de download (`📥`).
-4. Na janela que se abrir, clique em **"Baixar Arquivo JSON"**.
-5. Um arquivo de texto estruturado contendo a portabilidade completa de dados será baixado para o seu computador.
+## 9. Rotina de Backup e Restauração Criptografada (Técnico/Segurança)
 
----
-
-## 9. Rotina de Backup e Restauração (Técnico/Segurança)
-
-Os dados clínicos e financeiros do consultório são preciosos. Realize backups regulares para evitar perdas em caso de problemas de hardware no computador local.
+Os dados clínicos e financeiros do consultório são preciosos. Os backups são gerados com **criptografia forte simétrica (AES-256 via Fernet)**, garantindo que mesmo se o arquivo de backup for interceptado, os dados dos pacientes permaneçam ilegíveis sem a chave correspondente.
 
 > [!IMPORTANT]
-> Os comandos a seguir devem ser executados por meio do terminal do sistema operacional (PowerShell) na pasta raiz do projeto.
+> **Chave de Criptografia**: Garanta que a variável `BACKUP_ENCRYPTION_KEY` esteja preenchida no arquivo `.env` com uma chave forte (de 32 bytes em base64). 
+> Caso precise gerar uma nova chave, execute:
+> ```bash
+> python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+> ```
+> **ATENÇÃO**: Guarde essa chave em local seguro (fora do servidor). Sem ela, os backups correspondentes serão impossíveis de descriptografar e restaurar!
 
-### A. Gerar Backup (Cópia de Segurança)
-Para gerar uma cópia de segurança completa do banco de dados atual:
-1. Abra o terminal (PowerShell) no computador onde o sistema está instalado.
+### A. Gerar Backup Cópia Segura (Criptografada)
+Para gerar uma cópia de segurança completa e criptografada do banco de dados atual:
+1. Abra o terminal na pasta raiz do projeto.
 2. Execute o comando:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/backup_db.ps1
+   ```bash
+   python scripts/backup_db.py
    ```
-3. O script se conectará ao banco de dados no contêiner Docker, extrairá todas as tabelas e salvará um arquivo com formato `.dump` (contendo a data e hora da geração) dentro da pasta `backups/`.
-4. **Recomendação de segurança**: Copie o arquivo `.dump` gerado para um local externo seguro (como um HD externo ou pasta em nuvem segura protegida por criptografia de ponta a ponta).
+3. O script se conectará ao banco de dados no contêiner Docker, gerará o dump estrutural, criptografará em memória e salvará o arquivo com formato `.pgdump.enc` dentro da pasta `backups/` (ou da pasta configurada na variável `BACKUP_DIR` do `.env`).
+4. **Rotação Automática**: O script retém apenas os últimos backups (conforme configurado em `BACKUP_RETENTION_COUNT` no `.env`, padrão de 7 backups).
+5. **Backup Externo**: Recomendamos que a pasta `backups/` local seja sincronizada ou movida diariamente para um serviço seguro de armazenamento externo em nuvem.
 
-### B. Restaurar Backup (Recuperação de Dados)
-Se você precisar reinstalar o sistema ou recuperar os dados de uma data anterior:
-1. Identifique o nome do arquivo que deseja restaurar dentro da pasta `backups/` (exemplo: `backup_20260612_150000.dump`).
-2. Abra o terminal (PowerShell) na pasta raiz do projeto.
-3. Execute o comando passando o nome exato do arquivo desejado:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/restore_db.ps1 -BackupFile backups/NOME_DO_ARQUIVO.dump
+### B. Validar e Testar Restauração (Rotina de Integridade)
+Para garantir que o backup mais recente gerado está íntegro e é funcional:
+1. Execute o comando:
+   ```bash
+   python scripts/testar_restauracao.py
    ```
-4. O script exibirá um aviso alertando que todos os dados atuais serão substituídos e exigirá que você digite a palavra **`RESTAURAR`** (tudo em maiúsculas) para confirmar a operação.
-5. Digite e pressione Enter. O banco de dados será limpo e restaurado para o estado exato daquele backup.
+2. O script localiza o backup mais recente, descriptografa-o em memória, cria um banco de dados de testes temporário no Docker (`consultorio_teste_backup`), restaura o dump, executa consultas de validação estrutural e remove o banco temporário ao final.
+3. Recomendamos rodar essa verificação periodicamente para garantir a confiabilidade da sua infraestrutura.
+
+### C. Restaurar Backup (Recuperação de Dados)
+Se você precisar restabelecer o banco de dados a partir de um backup criptografado:
+1. Localize o nome do arquivo que deseja restaurar dentro da pasta `backups/` (exemplo: `consultorio_backup_20260612_150000.pgdump.enc`).
+2. Execute o comando passando o nome do arquivo desejado:
+   ```bash
+   python scripts/restaurar_db.py backups/NOME_DO_ARQUIVO.pgdump.enc
+   ```
+3. O script lerá e descriptografará os dados em memória usando a chave configurada no `.env` e aplicará a restauração completa no PostgreSQL ativo no Docker.
 
 ---
 
