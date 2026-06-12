@@ -1,11 +1,11 @@
 import streamlit as st
-from app.screens.shared import db, registrar, mostrar_flash
+from app.screens.shared import db, registrar, mostrar_flash, ui_header
 from app.auth.senha_service import trocar_senha_usuario
 
 
 def tela_minha_conta():
     mostrar_flash()
-    st.header("Minha conta")
+    ui_header("Minha Conta", icon="🔒")
     st.subheader("Alterar senha")
     with st.form("alterar_senha"):
         senha_atual = st.text_input("Senha atual", type="password")

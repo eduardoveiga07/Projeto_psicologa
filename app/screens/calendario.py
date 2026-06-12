@@ -2,7 +2,7 @@ import streamlit as st
 from datetime import datetime
 from app.screens.shared import (
     db, registrar, mostrar_flash, flash, Indisponibilidade, MotivoIndisp,
-    DiaSemana, HORARIOS_INICIO, HORARIOS_FIM
+    DiaSemana, HORARIOS_INICIO, HORARIOS_FIM, ui_header
 )
 from app.services.feriados import feriados_brasil
 from app.services.pdf_export import gerar_pdf
@@ -14,7 +14,7 @@ from app.services.validacao_negocio import validar_datas_bloqueio
 
 def tela_calendario():
     mostrar_flash()
-    st.header("📅 Calendário do Consultório")
+    ui_header("Calendário de Bloqueios e Folgas", icon="📆")
     ABAS = ["Visão geral", "Feriados oficiais",
             "Indisponibilidades (férias/imprevistos)"]
     aba_sel = st.radio("Seção", ABAS, horizontal=True,

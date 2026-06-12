@@ -4,7 +4,7 @@ from sqlalchemy import extract
 from app.screens.shared import (
     db, registrar, mostrar_flash, flash, Paciente, AgendaSessao,
     Indisponibilidade, StatusPaciente, StatusPresenca, DiaSemana,
-    FAIXAS_HORARIO, mapa_cached, invalidar_cache
+    FAIXAS_HORARIO, mapa_cached, invalidar_cache, ui_header
 )
 from app.services.feriados import feriados_brasil
 from app.services.pdf_export import gerar_pdf
@@ -13,7 +13,7 @@ from app.services.ocupacao import sessoes_perdidas_no_mes
 
 def tela_agenda():
     mostrar_flash()
-    st.header("Agenda de Sessões")
+    ui_header("Agenda de Sessões", icon="📅")
     st.caption("As sessões aparecem automaticamente conforme o cadastro de "
                "cada paciente (frequência, dia e horário). Para alterar uma "
                "data específica use Editar abaixo; para mudar permanente, "

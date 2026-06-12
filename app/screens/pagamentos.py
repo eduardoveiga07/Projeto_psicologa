@@ -1,8 +1,9 @@
 import streamlit as st
 from datetime import datetime, date, time
+import pandas as pd
 from app.screens.shared import (
-    db, mostrar_flash, flash, Paciente, AgendaSessao, StatusPaciente,
-    StatusPresenca, StatusPagamento, FAIXAS_HORARIO
+    db, mostrar_flash, flash, registrar, Paciente, AgendaSessao, StatusPaciente,
+    StatusPresenca, StatusPagamento, FAIXAS_HORARIO, ui_header, ui_kpi_card
 )
 from app.services.pdf_export import gerar_pdf
 from app.services.financeiro import fmt_br
@@ -10,9 +11,27 @@ from app.services.financeiro import fmt_br
 
 def tela_pagamentos():
     mostrar_flash()
-    st.header("Controle de Pagamentos")
-    st.caption("Regra: cancelou +24h ou imprevisto = isento. "
-               "Cancelou -24h = cobra. Realizada = cobra.")
+    ui_header("Controle de Pagamentos", icon="💸")
+
+    # KPIs superiores com visual premium
+    pend_kpis = db().query(AgendaSessao).filter(
+        AgendaSessao.status_pagamento.in_([
+            StatusPagamento.PENDENTE, StatusPagamento.ATRASADO]),
+        AgendaSessao.status_presenca != StatusPresenca.CANCELADA).all()
+        
+    total_valor_pendente = 0.0
+    for s in pend_kpis:
+        p = db().get(Paciente, s.id_paciente)
+        if p:
+            total_valor_pendente += float(p.valor_sessao)
+            
+    col1, col2 = st.columns(2)
+    with col1:
+        ui_kpi_card("Sessões em Aberto", f"{len(pend_kpis)} sessões", delta="Aguardando recebimento", delta_color="normal")
+    with col2:
+        ui_kpi_card("Total Pendente", fmt_br(total_valor_pendente), delta="Acumulado pendente", delta_color="inverse")
+        
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # Lancar sessao retroativa (historico antes do sistema existir)
     with st.expander("➕ Lançar sessão antiga (histórico anterior ao sistema)"):
@@ -44,8 +63,7 @@ def tela_pagamentos():
                             status_presenca=StatusPresenca(pres_r),
                             status_pagamento=StatusPagamento(pag_r)))
                         db().commit()
-                        st.success(f"Sessão de {dt_r.strftime('%d/%m/%Y')} "
-                                   "lançada.")
+                        st.success(f"Sessão de {dt_r.strftime('%d/%m/%Y')} lançado.")
                     except Exception:
                         db().rollback()
                         st.error("Horário já ocupado nesta data.")
@@ -74,13 +92,14 @@ def tela_pagamentos():
         gerar_pdf("Controle de Pagamentos", todas, totais=totais_todos),
         file_name="pagamentos_todos.pdf", mime="application/pdf")
 
+    # Lista individual para edições rápidas
+    st.write("---")
+    st.subheader("Últimas 100 sessões registradas")
     for s in sessoes:
         p = db().get(Paciente, s.id_paciente)
         nome = p.nome if p else "?"
         quando = s.data_hora_inicio.strftime("%d/%m/%Y %H:%M")
-        with st.expander(f"{nome} — {quando} — "
-                         f"{s.status_presenca.value} / "
-                         f"{s.status_pagamento.value}"):
+        with st.expander(f"{nome} — {quando} — {s.status_presenca.value} / {s.status_pagamento.value}"):
             c1, c2 = st.columns(2)
             pres = c1.selectbox("Situação", [e.value for e in StatusPresenca],
                 index=[e.value for e in StatusPresenca].index(
@@ -109,26 +128,60 @@ def tela_pagamentos():
                 flash("Atualizado.", "success")
                 st.rerun()
 
-    # Resumo de inadimplencia
-    pend = db().query(AgendaSessao).filter(
-        AgendaSessao.status_pagamento.in_([
-            StatusPagamento.PENDENTE, StatusPagamento.ATRASADO]),
-        AgendaSessao.status_presenca != StatusPresenca.CANCELADA).all()
-    st.subheader(f"Pagamentos em aberto: {len(pend)}")
-    linhas = []
-    for s in pend:
+    # Resumo de inadimplência com Ações em Lote (st.data_editor)
+    st.write("---")
+    st.subheader(f"Pagamentos em aberto ({len(pend_kpis)})")
+    
+    linhas_aberto = []
+    for s in pend_kpis:
         p = db().get(Paciente, s.id_paciente)
-        linhas.append({
+        linhas_aberto.append({
+            "Pagar em Lote": False,
             "Paciente": p.nome if p else "?",
             "Data": s.data_hora_inicio.strftime("%d/%m/%Y %H:%M"),
             "Situação": s.status_presenca.value,
             "Pagamento": s.status_pagamento.value,
-            "Valor": float(p.valor_sessao) if p else 0})
-    if linhas:
-        st.dataframe(linhas, use_container_width=True)
+            "Valor": float(p.valor_sessao) if p else 0.0,
+            "id_sessao": s.id_sessao
+        })
+        
+    if linhas_aberto:
+        df_aberto = pd.DataFrame(linhas_aberto)
+        df_editado = st.data_editor(
+            df_aberto,
+            column_config={
+                "id_sessao": None,  # Oculta
+                "Pagar em Lote": st.column_config.CheckboxColumn("Pagar em Lote", default=False)
+            },
+            disabled=["Paciente", "Data", "Situação", "Pagamento", "Valor"],
+            use_container_width=True,
+            key="pagamento_lote_editor"
+        )
+        
+        c1, c2 = st.columns([2, 1])
+        if c1.button("Confirmar Pagamento das Selecionadas", type="primary"):
+            selecionadas = df_editado[df_editado["Pagar em Lote"] == True]
+            if not selecionadas.empty:
+                count_pagos = 0
+                for idx, row in selecionadas.iterrows():
+                    sessao_id = int(row["id_sessao"])
+                    sessao = db().query(AgendaSessao).get(sessao_id)
+                    if sessao:
+                        sessao.status_pagamento = StatusPagamento.PAGO
+                        count_pagos += 1
+                db().commit()
+                registrar(db(), st.session_state.username, "PAGAMENTO_LOTE", f"quantidade={count_pagos}")
+                flash(f"Sucesso: {count_pagos} pagamentos registrados em lote!", "success")
+                st.rerun()
+            else:
+                st.warning("Selecione pelo menos uma sessão marcando o checkbox 'Pagar em Lote'.")
+                
         totais_aberto = {
-            "Valor": fmt_br(sum(l["Valor"] for l in linhas))
+            "Valor": fmt_br(sum(l["Valor"] for l in linhas_aberto))
         }
-        st.download_button("Baixar PDF (em aberto)",
-            gerar_pdf("Pagamentos em Aberto", linhas, totais=totais_aberto),
-            file_name="pagamentos_aberto.pdf", mime="application/pdf")
+        
+        # Remove colunas auxiliares do PDF para manter compatibilidade
+        pdf_linhas = [{k: v for k, v in l.items() if k not in ("Pagar em Lote", "id_sessao")} for l in linhas_aberto]
+        c2.download_button("Baixar PDF (em aberto)",
+            gerar_pdf("Pagamentos em Aberto", pdf_linhas, totais=totais_aberto),
+            file_name="pagamentos_aberto.pdf", mime="application/pdf", use_container_width=True)

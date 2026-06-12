@@ -1,5 +1,5 @@
 import streamlit as st
-from app.screens.shared import db, registrar, mostrar_flash, flash, Usuario, Perfil
+from app.screens.shared import db, registrar, mostrar_flash, flash, Usuario, Perfil, ui_header
 from app.auth.senha_policy import validar_senha
 from app.auth.login import gerar_hash
 from app.auth.usuario_validacao import (
@@ -12,7 +12,7 @@ from app.auth.usuario_validacao import (
 
 def tela_usuarios():
     mostrar_flash()
-    st.header("Gerenciamento de Usuários")
+    ui_header("Gerenciamento de Acessos", icon="👥")
     st.subheader("Criar novo usuário")
     with st.form("novo_u"):
         c1, c2 = st.columns(2)

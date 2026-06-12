@@ -2,13 +2,13 @@ import streamlit as st
 from datetime import datetime, date, time, timedelta
 import plotly.graph_objects as go
 
-from app.screens.shared import db, Usuario
+from app.screens.shared import db, Usuario, ui_header
 from app.db.models import Auditoria
 from app.services.pdf_export import gerar_pdf
 
 
 def tela_auditoria():
-    st.header("🛡️ Trilha de Auditoria e Segurança (LGPD)")
+    ui_header("Painel de Auditoria e Logs", icon="🛡️")
     st.caption("Acompanhe o histórico de todas as operações críticas e eventos de segurança realizados na plataforma.")
 
     # Obter a lista de usuários e ações para os filtros

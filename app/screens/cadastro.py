@@ -4,7 +4,7 @@ from decimal import Decimal
 import json
 
 from app.screens.shared import (
-    db, registrar, mostrar_flash, flash, invalidar_cache, FAIXAS_HORARIO, mapa_cached
+    db, registrar, mostrar_flash, flash, invalidar_cache, FAIXAS_HORARIO, mapa_cached, ui_header
 )
 from app.db.models import (
     Paciente, AgendaSessao, ContratoHistorico, ExcecaoHorario,
@@ -142,7 +142,7 @@ def exportar_paciente_dialog(p_id, p_nome):
 
 def tela_cadastro():
     mostrar_flash()
-    st.header("Cadastro de Pacientes")
+    ui_header("Cadastro de Pacientes", icon="👤")
 
     tipo = st.radio("Tipo de paciente", ["Recorrente (ativo)",
         "Avaliação Inicial (sessão única)"], horizontal=True)

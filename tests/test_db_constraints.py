@@ -1,0 +1,77 @@
+import unittest
+from datetime import datetime, date
+from decimal import Decimal
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import IntegrityError
+import uuid
+
+from app.db.models import Base, AgendaSessao, ContratoHistorico, Usuario, Perfil, Frequencia
+
+class DbConstraintsTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Banco SQLite em memória para validação rápida de constraints
+        cls.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(cls.engine)
+        cls.Session = sessionmaker(bind=cls.engine)
+
+    def setUp(self):
+        self.session = self.Session()
+
+    def tearDown(self):
+        self.session.rollback()
+        self.session.close()
+
+    def test_sessao_fim_menor_que_inicio_falha(self):
+        # Sessão com data_hora_fim anterior a data_hora_inicio deve falhar na constraint ck_sessoes_datas
+        s = AgendaSessao(
+            id_paciente=uuid.uuid4(),
+            data_hora_inicio=datetime(2026, 6, 12, 10, 0),
+            data_hora_fim=datetime(2026, 6, 12, 9, 0),  # Menor que início!
+        )
+        self.session.add(s)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_contrato_vigente_ate_menor_que_de_falha(self):
+        # Contrato com data de fim anterior ao inicio deve falhar na constraint ck_contratos_datas
+        c = ContratoHistorico(
+            id_paciente=uuid.uuid4(),
+            vigente_de=date(2026, 6, 12),
+            vigente_ate=date(2026, 6, 10),  # Anterior ao de!
+            frequencia=Frequencia.SEMANAL,
+            valor_sessao=Decimal("150.00")
+        )
+        self.session.add(c)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_usuario_tentativas_negativas_falha(self):
+        # Usuário com tentativas de login negativas deve falhar na constraint ck_tentativas_pos
+        u = Usuario(
+            username="test_constraints",
+            nome="Test User",
+            senha_hash="hash",
+            perfil=Perfil.SECRETARIA,
+            tentativas_login=-1  # Negativo!
+        )
+        self.session.add(u)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_dados_validos_salvam_com_sucesso(self):
+        # Dados coerentes devem ser persistidos normalmente
+        u = Usuario(
+            username="test_constraints_ok",
+            nome="Test User Ok",
+            senha_hash="hash",
+            perfil=Perfil.SECRETARIA,
+            tentativas_login=0
+        )
+        self.session.add(u)
+        self.session.commit()
+        self.assertIsNotNone(u.id_usuario)
+
+if __name__ == "__main__":
+    unittest.main()

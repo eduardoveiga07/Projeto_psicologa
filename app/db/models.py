@@ -108,6 +108,7 @@ class AgendaSessao(Base):
     paciente = relationship("Paciente", back_populates="sessoes")
     __table_args__ = (
         UniqueConstraint("data_hora_inicio", name="uq_horario_unico"),
+        CheckConstraint("data_hora_fim > data_hora_inicio", name="ck_sessoes_datas"),
     )
 
 
@@ -131,6 +132,9 @@ class ContratoHistorico(Base):
     paridade_quinzenal = Column(String(10), nullable=True)
     sessoes_mes_custom = Column(Integer, nullable=True)
     criado_em = Column(DateTime, server_default=func.now())
+    __table_args__ = (
+        CheckConstraint("vigente_ate >= vigente_de OR vigente_ate IS NULL", name="ck_contratos_datas"),
+    )
 
 
 class ExcecaoHorario(Base):
@@ -188,6 +192,9 @@ class Usuario(Base):
     tentativas_login = Column(Integer, default=0, nullable=False)
     bloqueado_ate = Column(DateTime, nullable=True)
     trocar_senha_proximo_login = Column(Boolean, default=False, nullable=False)
+    __table_args__ = (
+        CheckConstraint("tentativas_login >= 0", name="ck_tentativas_pos"),
+    )
 
 
 class Auditoria(Base):

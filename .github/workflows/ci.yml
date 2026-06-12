@@ -13,6 +13,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: psico
+          POSTGRES_PASSWORD: psico
+          POSTGRES_DB: consultorio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -27,6 +42,30 @@ jobs:
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+    - name: Lint with Flake8
+      run: |
+        pip install flake8
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Run Alembic Migrations
+      env:
+        DATABASE_URL: postgresql+psycopg2://psico:psico@localhost:5432/consultorio
+      run: |
+        alembic upgrade head
+
+    - name: Run Alembic Check Synchronization
+      env:
+        DATABASE_URL: postgresql+psycopg2://psico:psico@localhost:5432/consultorio
+      run: |
+        alembic check
+
     - name: Run Unit Tests
       run: |
         python -m unittest discover -s tests
+
+    - name: Validate Docker Build
+      run: |
+        docker build -t test-app .
