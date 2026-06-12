@@ -19,6 +19,7 @@ from app.screens.pagamentos import tela_pagamentos
 from app.screens.financeiro import tela_financeiro
 from app.screens.agenda import tela_agenda
 from app.screens.cadastro import tela_cadastro
+from app.screens.auditoria import tela_auditoria
 from app.screens.shared import db
 
 from app.auth.usuario_validacao import (
@@ -26,6 +27,7 @@ from app.auth.usuario_validacao import (
     validar_email_opcional,
     validar_nome,
     validar_username,
+    obter_telas_permitidas,
 )
 
 st.set_page_config(page_title="Gestão Consultório", layout="wide")
@@ -114,17 +116,9 @@ else:
              "Cadastro": tela_cadastro, "Agenda": tela_agenda,
              "Calendário": tela_calendario,
              "Pagamentos": tela_pagamentos, "Financeiro": tela_financeiro,
-             "Usuários": tela_usuarios}
-    if perfil == Perfil.DONA.value:
-        permitidas = ["Minha conta", "Cadastro", "Agenda", "Calendário",
-                      "Pagamentos", "Financeiro", "Usuários"]
-    elif perfil == Perfil.SECRETARIA.value:
-        permitidas = ["Minha conta", "Cadastro", "Agenda", "Calendário",
-                      "Pagamentos"]
-    elif perfil == Perfil.FINANCEIRO.value:
-        permitidas = ["Minha conta", "Pagamentos", "Financeiro"]
-    else:  # PROGRAMADOR
-        permitidas = list(TODAS.keys())
+             "Usuários": tela_usuarios,
+             "Auditoria": tela_auditoria}
+    permitidas = obter_telas_permitidas(perfil)
 
     aba = st.sidebar.radio("Menu", permitidas)
     TODAS[aba]()

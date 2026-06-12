@@ -33,3 +33,29 @@ def validar_email_opcional(email: str) -> tuple:
     if email and not EMAIL_RE.fullmatch(email):
         return False, "Email invalido."
     return True, "OK"
+
+
+def obter_telas_permitidas(perfil: str) -> list[str]:
+    """Retorna a lista de nomes de telas permitidas para um determinado perfil."""
+    from app.db.models import Perfil
+
+    todas = [
+        "Minha conta",
+        "Cadastro",
+        "Agenda",
+        "Calendário",
+        "Pagamentos",
+        "Financeiro",
+        "Usuários",
+        "Auditoria"
+    ]
+    if perfil == Perfil.DONA.value:
+        return todas
+    elif perfil == Perfil.SECRETARIA.value:
+        return ["Minha conta", "Cadastro", "Agenda", "Calendário", "Pagamentos"]
+    elif perfil == Perfil.FINANCEIRO.value:
+        return ["Minha conta", "Pagamentos", "Financeiro"]
+    elif perfil == Perfil.PROGRAMADOR.value:
+        return todas
+    return todas
+
