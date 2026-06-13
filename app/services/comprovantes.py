@@ -7,11 +7,72 @@ Responsabilidades:
 - Persistência local em uploads/comprovantes/
 - Retorno de metadados completos para banco de dados
 
-Nota sobre Streamlit Cloud:
-    O filesystem do Streamlit Cloud pode ser efêmero (reinicialização apaga os uploads).
-    Para produção robusta, substitua a função `salvar_comprovante` por uma integração
-    com armazenamento externo (S3, Supabase Storage, Google Drive API, etc.).
-    O banco de dados já persiste os metadados; apenas a camada de storage precisa mudar.
+# Contratos estáveis (não mudam ao trocar o storage):
+
+    salvar_comprovante(uploaded_file, tipo, registro_id) -> dict | None
+        Retorna sempre um dict com as chaves:
+            "nome"          — nome interno único (usado no banco)
+            "nome_original" — nome original enviado pelo usuário
+            "mime"          — tipo MIME (ex: "application/pdf")
+            "tamanho"       — tamanho em bytes (int)
+            "enviado_em"    — datetime do upload
+
+    obter_comprovante_caminho(nome_arquivo) -> str | None
+        Retorna o caminho absoluto para leitura interna.
+        NUNCA exponha este valor na interface do usuário.
+
+    deletar_comprovante(nome_arquivo) -> bool
+        Remove o arquivo do storage. Retorna True se removido.
+
+    aplicar_metadados_comprovante(registro, metadados) -> None
+    limpar_metadados_comprovante(registro) -> None
+        Helpers para aplicar/apagar os 5 campos de metadados em um objeto ORM.
+
+# Limitação atual — filesystem efêmero no Streamlit Cloud:
+
+    O Streamlit Cloud pode reiniciar o servidor a qualquer momento, apagando
+    tudo em uploads/comprovantes/. Os METADADOS permanecem seguros no banco
+    PostgreSQL, mas o arquivo físico pode desaparecer.
+
+    A UI trata esse caso com fallback gracioso ("⚠️ Arquivo ausente") sem
+    quebrar o sistema.
+
+# ─────────────────────────────────────────────────────────────────
+# TODO TÉCNICO — Migração para storage externo em produção
+# ─────────────────────────────────────────────────────────────────
+#
+# Quando o sistema for para produção definitiva (ou enquanto rodar no
+# Streamlit Cloud), substituir SOMENTE a função `salvar_comprovante`
+# por uma implementação de storage externo. O restante do código
+# (telas, ORM, auditoria) não precisa ser alterado.
+#
+# Opções recomendadas:
+#
+#   1. Supabase Storage (mais simples, já oferece PostgreSQL)
+#      - pip install supabase
+#      - bucket: "comprovantes"
+#      - URL pública controlada por policies (RLS)
+#      - Implementar: salvar → supabase.storage.from_("comprovantes").upload(...)
+#
+#   2. Amazon S3 / Cloudflare R2
+#      - pip install boto3
+#      - bucket privado + URL assinada com expiração (ex: 15 min)
+#      - Implementar: salvar → s3.put_object(...); download → s3.generate_presigned_url(...)
+#
+#   3. Google Drive API
+#      - pip install google-api-python-client google-auth
+#      - Pasta compartilhada somente com a conta da profissional
+#      - Implementar: salvar → drive.files().create(...)
+#
+# Regras que devem ser mantidas independente do storage escolhido:
+#   ✔ Metadados (nome, mime, tamanho, enviado_em) permanecem no banco PostgreSQL
+#   ✔ Caminho/URL absoluta nunca é exposta diretamente na interface
+#   ✔ Download sempre controlado por usuário autenticado
+#   ✔ Fallback gracioso quando arquivo não existe ("⚠️ Arquivo ausente")
+#   ✔ Auditoria registrada ao anexar e ao remover (COMPROVANTE_ANEXADO/REMOVIDO)
+#   ✔ Arquivos dos pacientes são dados pessoais/financeiros — conformidade LGPD obrigatória
+#   ✔ uploads/ permanece no .gitignore (nunca versionar arquivos de pacientes)
+# ─────────────────────────────────────────────────────────────────
 """
 import os
 import re

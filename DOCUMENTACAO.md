@@ -510,9 +510,136 @@ A suite de testes foi expandida para cobrir:
 - Validação de regras e seguranca de perfil na tela de auditoria.
 - Lógica de faturamento e inadimplência usando banco de dados SQLite em memoria (`tests/test_financeiro_db.py`).
 - Geração fisica e integridade binaria de PDFs (`tests/test_pdf_export.py`).
+- Validação completa do serviço de comprovantes: tipo, tamanho, sanitização, ciclo disco e helpers ORM (`tests/test_comprovantes.py`).
+- Notificações e busca global com limites de resultados (`tests/test_notificacoes.py`, `tests/test_busca_global.py`).
 
 Execute os testes com:
 ```bash
 python -m unittest discover -s tests
 ```
 
+---
+
+## Comprovantes — Arquitetura de Storage
+
+### Visão Geral
+
+O sistema permite anexar comprovantes de pagamento (PDF, PNG, JPG/JPEG, máximo 10 MB) tanto em sessões quanto em despesas. A arquitetura foi projetada para isolar completamente a camada de storage, de modo que a troca futura para S3/Supabase não exija alterar nenhuma tela.
+
+### Camada isolada: `app/services/comprovantes.py`
+
+Toda manipulação de arquivo passa por este módulo. As telas (`financeiro.py`, `pagamentos.py`, `cadastro.py`) **nunca** lidam com caminhos absolutos ou storage diretamente.
+
+**Contratos estáveis — não mudam ao trocar o storage:**
+
+| Função | Descrição |
+|---|---|
+| `salvar_comprovante(file, tipo, id)` | Valida, salva e retorna `dict` com 5 campos de metadados |
+| `obter_comprovante_caminho(nome)` | Retorna caminho interno para leitura — nunca exposto na UI |
+| `deletar_comprovante(nome)` | Remove arquivo do storage |
+| `aplicar_metadados_comprovante(registro, meta)` | Aplica os 5 campos no ORM |
+| `limpar_metadados_comprovante(registro)` | Zera todos os campos de metadados no ORM |
+
+**Dicionário de metadados retornado por `salvar_comprovante`:**
+```python
+{
+    "nome":          "sessao_42_1718290000_recibo.pdf",  # nome interno único
+    "nome_original": "Recibo Janeiro 2026.pdf",          # nome original do usuário
+    "mime":          "application/pdf",                   # MIME correto para download
+    "tamanho":       45312,                              # bytes
+    "enviado_em":    datetime(2026, 1, 13, 10, 30),      # data/hora do upload
+}
+```
+
+### Metadados no Banco de Dados
+
+Os 5 campos são persistidos em `agenda_sessoes` e `despesas`:
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `comprovante_nome` | `VARCHAR(200)` | Nome interno gerado — nunca um caminho absoluto |
+| `comprovante_nome_original` | `VARCHAR(300)` | Nome original enviado pelo usuário |
+| `comprovante_mime` | `VARCHAR(100)` | Tipo MIME para download correto |
+| `comprovante_tamanho` | `INTEGER` | Tamanho em bytes |
+| `comprovante_enviado_em` | `DATETIME` | Data/hora do upload |
+
+Os metadados ficam **permanentemente no banco PostgreSQL**, mesmo que o arquivo físico desapareça.
+
+### Validação de Upload
+
+Toda submissão passa por `validar_upload()` antes de qualquer escrita em disco:
+
+- **Extensões aceitas:** `.pdf`, `.png`, `.jpg`, `.jpeg`
+- **Tamanho máximo:** 10 MB (configurável via `TAMANHO_MAXIMO_BYTES`)
+- **Arquivo vazio:** rejeitado
+- **Nome sanitizado:** ASCII seguro, colapsado, com timestamp para unicidade
+
+### Auditoria e LGPD
+
+Toda operação com comprovante gera registro em `auditoria`:
+
+- `COMPROVANTE_ANEXADO` — `despesa_id`/`sessao_id`, nome do arquivo, MIME e bytes
+- `COMPROVANTE_REMOVIDO` — arquivo anterior, motivo (ex: `motivo=status_nao_pago`)
+
+Regras LGPD observadas:
+- `uploads/` está no `.gitignore` — arquivos de pacientes nunca são versionados
+- Caminhos absolutos nunca aparecem na interface do usuário
+- Download sempre controlado por usuário autenticado e ativo
+- Comprovante removido automaticamente quando sessão deixa de ser "Paga"
+
+### Limitação atual — Streamlit Cloud
+
+> ⚠️ **O filesystem do Streamlit Cloud é efêmero.** A plataforma pode reiniciar o contêiner a qualquer momento, apagando o conteúdo de `uploads/`. Os metadados permanecem no banco PostgreSQL, mas o arquivo físico pode desaparecer entre reinicializações.
+
+A interface trata este caso com fallback gracioso: exibe `⚠️ Arquivo ausente` sem quebrar o sistema ou gerar erro para o usuário.
+
+---
+
+### TODO TÉCNICO — Migração para Storage Externo
+
+> Quando o sistema for para produção definitiva ou quando a limitação do filesystem do Streamlit Cloud se tornar um problema, substituir **somente** a função `salvar_comprovante` em `app/services/comprovantes.py`. Nenhuma tela precisa ser alterada.
+
+**Opções recomendadas:**
+
+#### 1. Supabase Storage *(recomendado — já fornece PostgreSQL)*
+```bash
+pip install supabase
+```
+```python
+# Implementação de salvar_comprovante com Supabase:
+from supabase import create_client
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase.storage.from_("comprovantes").upload(nome_arquivo, dados)
+url = supabase.storage.from_("comprovantes").create_signed_url(nome_arquivo, 900)
+```
+
+#### 2. Amazon S3 / Cloudflare R2
+```bash
+pip install boto3
+```
+```python
+# Implementação com S3 — URL assinada com expiração de 15 min:
+s3 = boto3.client("s3", ...)
+s3.put_object(Bucket=BUCKET, Key=nome_arquivo, Body=dados)
+url = s3.generate_presigned_url("get_object", Params={...}, ExpiresIn=900)
+```
+
+#### 3. Google Drive API
+```bash
+pip install google-api-python-client google-auth
+```
+```python
+# Implementação com Drive — pasta privada da profissional:
+service.files().create(body={"name": nome_arquivo, "parents": [FOLDER_ID]},
+                       media_body=dados).execute()
+```
+
+**Regras invariantes — válidas para qualquer storage escolhido:**
+
+- ✔ Metadados (`nome`, `mime`, `tamanho`, `enviado_em`) permanecem no banco PostgreSQL
+- ✔ Caminho ou URL absoluta nunca é exposta diretamente na interface
+- ✔ Download sempre controlado por usuário autenticado
+- ✔ Fallback gracioso quando arquivo não existe (`⚠️ Arquivo ausente`)
+- ✔ Auditoria registrada ao anexar e ao remover (`COMPROVANTE_ANEXADO` / `COMPROVANTE_REMOVIDO`)
+- ✔ Arquivos dos pacientes são dados pessoais/financeiros — conformidade LGPD obrigatória
+- ✔ `uploads/` permanece no `.gitignore` — nunca versionar arquivos de pacientes

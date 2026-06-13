@@ -53,11 +53,20 @@ powershell -ExecutionPolicy Bypass -File scripts/restore_db.ps1 -BackupFile back
 
 Os backups locais ficam em `backups/`, que nao e versionado pelo Git.
 
+## Comprovantes de pagamento
+
+O sistema permite anexar comprovantes (PDF, PNG, JPG — máximo 10 MB) em sessões e despesas.
+
+> ⚠️ **Limitação no Streamlit Cloud:** o filesystem é efêmero — arquivos em `uploads/` podem ser perdidos em reinicializações. Os **metadados** (nome original, MIME, tamanho, data de envio) permanecem **permanentemente no banco PostgreSQL**. A interface exibe `⚠️ Arquivo ausente` quando o arquivo físico não é encontrado, sem quebrar o sistema.
+
+**TODO técnico:** substituir `salvar_comprovante()` em `app/services/comprovantes.py` por Supabase Storage, S3 ou Google Drive para storage persistente em produção. Nenhuma tela precisa ser alterada — ver [DOCUMENTACAO.md § Comprovantes — Arquitetura de Storage](DOCUMENTACAO.md) para guia completo com código de exemplo.
+
 ## Estrutura
 - app/db        modelos e conexao
-- app/services  motor financeiro (previsto vs realizado, DRE)
+- app/services  motor financeiro (previsto vs realizado, DRE) + storage de comprovantes
 - app/auth      login bcrypt
-- app/main.py   interface (Cadastro / Agenda / Financeiro)
+- app/main.py   interface (Cadastro / Agenda / Financeiro / Saúde do Sistema)
 
 ## Pendente (apos validacao da profissional)
 - Modulo 3: automacao WhatsApp (Meta Cloud API - exige conta paga)
+- **TODO:** trocar storage local de comprovantes por S3/Supabase Storage em producao
