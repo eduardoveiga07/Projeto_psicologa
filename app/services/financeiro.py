@@ -9,7 +9,8 @@ from app.services.contrato import snapshot_vigente
 
 
 def previsto_paciente(p: Paciente, ano: int, mes: int,
-                      bloqueadas: set = None, db=None) -> dict:
+                      bloqueadas: set = None, db=None,
+                      historico=None, pontuais=None) -> dict:
     """Previsao de sessoes e faturamento de UM paciente no mes.
     Pro-rateado: cada data candidata del mes eh avaliada com o snapshot
     vigente NAQUELA data (corrige mudanca de contrato no meio do mes)."""
@@ -36,9 +37,10 @@ def previsto_paciente(p: Paciente, ano: int, mes: int,
     datas_recorrentes = set()  # para evitar dupla contagem com pontuais
 
     # Carrega todo o historico de contratos do paciente de uma vez
-    historico = db.query(ContratoHistorico).filter(
-        ContratoHistorico.id_paciente == p.id_paciente
-    ).order_by(ContratoHistorico.vigente_de.desc()).all()
+    if historico is None:
+        historico = db.query(ContratoHistorico).filter(
+            ContratoHistorico.id_paciente == p.id_paciente
+        ).order_by(ContratoHistorico.vigente_de.desc()).all()
 
     # Para cada dia do mes, ve qual snapshot vigente e se conta sessao
     for d in range(1, total_dias + 1):
@@ -101,13 +103,14 @@ def previsto_paciente(p: Paciente, ano: int, mes: int,
         fat = Decimal(n) * snap_fim.valor_sessao
 
     # Sessoes pontuais AGENDADAS no mes (avulsas/remarcadas) -> entram no previsto
-    from app.db.models import AgendaSessao, StatusPresenca
-    pontuais = db.query(AgendaSessao).filter(
-        AgendaSessao.id_paciente == p.id_paciente,
-        AgendaSessao.status_presenca == StatusPresenca.AGENDADA,
-        extract("year", AgendaSessao.data_hora_inicio) == ano,
-        extract("month", AgendaSessao.data_hora_inicio) == mes,
-    ).all()
+    if pontuais is None:
+        from app.db.models import AgendaSessao, StatusPresenca
+        pontuais = db.query(AgendaSessao).filter(
+            AgendaSessao.id_paciente == p.id_paciente,
+            AgendaSessao.status_presenca == StatusPresenca.AGENDADA,
+            extract("year", AgendaSessao.data_hora_inicio) == ano,
+            extract("month", AgendaSessao.data_hora_inicio) == mes,
+        ).all()
     for s in pontuais:
         d_pont = s.data_hora_inicio.date()
         # Se a data ja foi contada pela recorrencia, pula
@@ -133,7 +136,8 @@ def _previsto_legado(p, ano, mes, bloqueadas):
             "faturamento_previsto": Decimal(n) * p.valor_sessao}
 
 
-def realizado_paciente(db, p: Paciente, ano: int, mes: int) -> dict:
+def realizado_paciente(db, p: Paciente, ano: int, mes: int,
+                       historico=None, sessoes=None) -> dict:
     """Sessoes que geram receita: Realizada ou Cancelou -24h (cobra).
     Cada sessao eh valorada pelo snapshot vigente na sua data (corrige
     mudancas de valor retroativas).
@@ -141,19 +145,21 @@ def realizado_paciente(db, p: Paciente, ano: int, mes: int) -> dict:
     from app.db.models import AgendaSessao, StatusPresenca, StatusPagamento, ContratoHistorico
     from app.services.contrato import snapshot_vigente_em_memoria
 
-    sessoes = db.query(AgendaSessao).filter(
-        AgendaSessao.id_paciente == p.id_paciente,
-        AgendaSessao.status_presenca.in_([
-            StatusPresenca.REALIZADA,
-            StatusPresenca.CANCELOU_EM_CIMA]),
-        extract("year", AgendaSessao.data_hora_inicio) == ano,
-        extract("month", AgendaSessao.data_hora_inicio) == mes,
-    ).all()
+    if sessoes is None:
+        sessoes = db.query(AgendaSessao).filter(
+            AgendaSessao.id_paciente == p.id_paciente,
+            AgendaSessao.status_presenca.in_([
+                StatusPresenca.REALIZADA,
+                StatusPresenca.CANCELOU_EM_CIMA]),
+            extract("year", AgendaSessao.data_hora_inicio) == ano,
+            extract("month", AgendaSessao.data_hora_inicio) == mes,
+        ).all()
 
     # Carrega todo o historico de contratos do paciente de uma vez
-    historico = db.query(ContratoHistorico).filter(
-        ContratoHistorico.id_paciente == p.id_paciente
-    ).order_by(ContratoHistorico.vigente_de.desc()).all()
+    if historico is None:
+        historico = db.query(ContratoHistorico).filter(
+            ContratoHistorico.id_paciente == p.id_paciente
+        ).order_by(ContratoHistorico.vigente_de.desc()).all()
 
     fat = Decimal(0)
     inad = Decimal(0)
@@ -172,14 +178,58 @@ def consolidado_mes(db, ano: int, mes: int) -> dict:
     """Visao da planilha: previsto e realizado de todos os pacientes ativos + DRE.
     Incorpora faturamento inadimplente."""
     from app.services.indisponibilidade import datas_dia_todo
+    from app.db.models import ContratoHistorico, AgendaSessao, StatusPresenca
+    
     bloq = datas_dia_todo(db, ano, mes)
     ativos = db.query(Paciente).filter(
         Paciente.status == StatusPaciente.ATIVO).all()
 
+    p_ids = [p.id_paciente for p in ativos]
+    if p_ids:
+        # Pre-fetch ContratoHistorico for all active patients
+        contratos_db = db.query(ContratoHistorico).filter(
+            ContratoHistorico.id_paciente.in_(p_ids)
+        ).order_by(ContratoHistorico.vigente_de.desc()).all()
+        contratos_dict = {}
+        for c in contratos_db:
+            contratos_dict.setdefault(c.id_paciente, []).append(c)
+            
+        # Pre-fetch AgendaSessao (AGENDADA) for all active patients in that month
+        pontuais_db = db.query(AgendaSessao).filter(
+            AgendaSessao.id_paciente.in_(p_ids),
+            AgendaSessao.status_presenca == StatusPresenca.AGENDADA,
+            extract("year", AgendaSessao.data_hora_inicio) == ano,
+            extract("month", AgendaSessao.data_hora_inicio) == mes,
+        ).all()
+        pontuais_dict = {}
+        for s in pontuais_db:
+            pontuais_dict.setdefault(s.id_paciente, []).append(s)
+            
+        # Pre-fetch AgendaSessao (REALIZADA, CANCELOU_EM_CIMA) for all active patients in that month
+        sessoes_db = db.query(AgendaSessao).filter(
+            AgendaSessao.id_paciente.in_(p_ids),
+            AgendaSessao.status_presenca.in_([
+                StatusPresenca.REALIZADA,
+                StatusPresenca.CANCELOU_EM_CIMA]),
+            extract("year", AgendaSessao.data_hora_inicio) == ano,
+            extract("month", AgendaSessao.data_hora_inicio) == mes,
+        ).all()
+        sessoes_dict = {}
+        for s in sessoes_db:
+            sessoes_dict.setdefault(s.id_paciente, []).append(s)
+    else:
+        contratos_dict = {}
+        pontuais_dict = {}
+        sessoes_dict = {}
+
     linhas, fat_prev, fat_real, total_inad = [], Decimal(0), Decimal(0), Decimal(0)
     for p in ativos:
-        pv = previsto_paciente(p, ano, mes, bloq, db=db)
-        rl = realizado_paciente(db, p, ano, mes)
+        hist_p = contratos_dict.get(p.id_paciente, [])
+        pont_p = pontuais_dict.get(p.id_paciente, [])
+        sess_p = sessoes_dict.get(p.id_paciente, [])
+        
+        pv = previsto_paciente(p, ano, mes, bloq, db=db, historico=hist_p, pontuais=pont_p)
+        rl = realizado_paciente(db, p, ano, mes, historico=hist_p, sessoes=sess_p)
         fat_prev += pv["faturamento_previsto"]
         fat_real += rl["faturamento_realizado"]
         total_inad += rl.get("inadimplencia", Decimal(0))
@@ -288,6 +338,13 @@ def expandir_recorrentes(db, ano: int, mes: int):
     ref_hoje = f"{hoje.year:04d}-{hoje.month:02d}"
     base = db.query(Despesa).filter(
         Despesa.recorrente == True).all()  # noqa: E712
+    if not base:
+        return
+        
+    existentes = db.query(Despesa.descricao).filter(
+        Despesa.mes_referencia == ref).all()
+    existentes_set = {e[0] for e in existentes}
+    
     for d in base:
         if ref < d.mes_referencia:
             continue
@@ -295,10 +352,7 @@ def expandir_recorrentes(db, ano: int, mes: int):
             continue
         if ref == d.mes_referencia:
             continue
-        ja = db.query(Despesa).filter(
-            Despesa.descricao == d.descricao,
-            Despesa.mes_referencia == ref).first()
-        if ja:
+        if d.descricao in existentes_set:
             continue
         dia = d.dia_vencimento_mes or d.data_vencimento.day
         _, td = cal.monthrange(ano, mes)

@@ -68,12 +68,39 @@ def tela_agenda():
     for r in bloq_lista:
         indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
     perdidas_total = []
-    for p_a in db().query(Paciente).filter(
+    ativos_perdidas = db().query(Paciente).filter(
             Paciente.status == StatusPaciente.ATIVO,
-            Paciente.em_avaliacao == False).all():  # noqa: E712
+            Paciente.em_avaliacao == False).all()  # noqa: E712
+    p_ids = [p.id_paciente for p in ativos_perdidas]
+    
+    if p_ids:
+        # Pre-fetch ja_remarcadas for all active patients
+        from app.db.models import AgendaSessao, ContratoHistorico
+        remarcadas_db = db().query(AgendaSessao.id_paciente, AgendaSessao.remarcada_de).filter(
+            AgendaSessao.id_paciente.in_(p_ids),
+            AgendaSessao.remarcada_de.isnot(None)).all()
+        remarcadas_dict = {}
+        for id_p, dt_rem in remarcadas_db:
+            remarcadas_dict.setdefault(id_p, set()).add(dt_rem)
+            
+        # Pre-fetch ContratoHistorico for all active patients
+        contratos_db = db().query(ContratoHistorico).filter(
+            ContratoHistorico.id_paciente.in_(p_ids)
+        ).order_by(ContratoHistorico.vigente_de.desc()).all()
+        contratos_dict = {}
+        for c in contratos_db:
+            contratos_dict.setdefault(c.id_paciente, []).append(c)
+    else:
+        remarcadas_dict = {}
+        contratos_dict = {}
+
+    for p_a in ativos_perdidas:
+        hist_p = contratos_dict.get(p_a.id_paciente, [])
+        rem_p = remarcadas_dict.get(p_a.id_paciente, set())
         for dt, hr, mot in sessoes_perdidas_no_mes(
                 p_a, int(cal_ano), int(cal_mes), db(),
-                indisp_set=indisp_set, feriados_set=fer_dict):
+                indisp_set=indisp_set, feriados_set=fer_dict,
+                historico=hist_p, ja_remarcadas=rem_p):
             perdidas_total.append((dt, hr, p_a.nome, mot))
     if perdidas_total:
         perdidas_total.sort()

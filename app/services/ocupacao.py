@@ -46,12 +46,14 @@ def _faixa_do_paciente_no_dia(p: Paciente, dia_nome: str) -> str:
     return ""
 
 
-def _aplicar_excecoes(db, p, datas_padrao: list, ano: int, mes: int) -> list:
+def _aplicar_excecoes(db, p, datas_padrao: list, ano: int, mes: int, excs=None) -> list:
     """Aplica exceções (recorrentes/pontuais) sobre as datas padrão."""
-    from app.db.models import ExcecaoHorario
-    import calendar as cal
-    excs = db.query(ExcecaoHorario).filter(
-        ExcecaoHorario.id_paciente == p.id_paciente).all()
+    if excs is None:
+        if db is None:
+            return datas_padrao
+        from app.db.models import ExcecaoHorario
+        excs = db.query(ExcecaoHorario).filter(
+            ExcecaoHorario.id_paciente == p.id_paciente).all()
     if not excs:
         return datas_padrao
     # Mapa data -> horario_alvo (substituições)
@@ -98,7 +100,9 @@ def _aplicar_excecoes(db, p, datas_padrao: list, ano: int, mes: int) -> list:
 
 def sessoes_perdidas_no_mes(p, ano: int, mes: int,
                              db, indisp_set: set = None,
-                             feriados_set: set = None) -> list:
+                             feriados_set: set = None,
+                             historico=None,
+                             ja_remarcadas=None) -> list:
     """Retorna [(data, horario, motivo)] de sessoes que CAIRIAM pela regra
     do contrato mas estao bloqueadas por feriado ou indisponibilidade.
     Usa indisp_set: {(data, 'dia_todo'|horario)}. feriados_set: {data}."""
@@ -115,15 +119,17 @@ def sessoes_perdidas_no_mes(p, ano: int, mes: int,
     fer = feriados_set if feriados_set is not None else feriados_brasil(ano)
     indisp = indisp_set or set()
     # Datas que ja foram remarcadas (ignora-las)
-    ja_remarcadas = {
-        s.remarcada_de for s in db.query(AgendaSessao).filter(
-            AgendaSessao.id_paciente == p.id_paciente,
-            AgendaSessao.remarcada_de.isnot(None)).all()
-    }
+    if ja_remarcadas is None:
+        ja_remarcadas = {
+            s.remarcada_de for s in db.query(AgendaSessao).filter(
+                AgendaSessao.id_paciente == p.id_paciente,
+                AgendaSessao.remarcada_de.isnot(None)).all()
+        }
     # Carrega todo o historico de contratos do paciente de uma vez
-    historico = db.query(ContratoHistorico).filter(
-        ContratoHistorico.id_paciente == p.id_paciente
-    ).order_by(ContratoHistorico.vigente_de.desc()).all()
+    if historico is None:
+        historico = db.query(ContratoHistorico).filter(
+            ContratoHistorico.id_paciente == p.id_paciente
+        ).order_by(ContratoHistorico.vigente_de.desc()).all()
 
     _, total_dias = calendar.monthrange(ano, mes)
     perdidas = []
@@ -181,7 +187,7 @@ def sessoes_perdidas_no_mes(p, ano: int, mes: int,
 
 
 def datas_paciente_no_mes(p, ano: int, mes: int,
-                          db=None) -> list:
+                          db=None, indisp_set=None, historico=None, excs=None) -> list:
     """Retorna [(data, horario)] em que p atende neste mes.
     Pro-rateado: para cada data candidata, consulta o snapshot do contrato
     vigente naquela data. Sem db, cai para os campos antigos (compat)."""
@@ -200,19 +206,22 @@ def datas_paciente_no_mes(p, ano: int, mes: int,
     from app.services.feriados import feriados_brasil
     from app.db.models import Indisponibilidade, ContratoHistorico
     fer = feriados_brasil(ano)
+    
     # Indisponibilidades do mes
-    indisp_set = set()
-    indisps = db.query(Indisponibilidade).filter(
-        Indisponibilidade.data >= date(ano, mes, 1),
-        Indisponibilidade.data <= date(ano, mes,
-            calendar.monthrange(ano, mes)[1])).all()
-    for r in indisps:
-        indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
+    if indisp_set is None:
+        indisp_set = set()
+        indisps = db.query(Indisponibilidade).filter(
+            Indisponibilidade.data >= date(ano, mes, 1),
+            Indisponibilidade.data <= date(ano, mes,
+                calendar.monthrange(ano, mes)[1])).all()
+        for r in indisps:
+            indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
 
     # Carrega todo o historico de contratos do paciente de uma vez
-    historico = db.query(ContratoHistorico).filter(
-        ContratoHistorico.id_paciente == p.id_paciente
-    ).order_by(ContratoHistorico.vigente_de.desc()).all()
+    if historico is None:
+        historico = db.query(ContratoHistorico).filter(
+            ContratoHistorico.id_paciente == p.id_paciente
+        ).order_by(ContratoHistorico.vigente_de.desc()).all()
 
     _, total_dias = calendar.monthrange(ano, mes)
     out = []
@@ -263,7 +272,7 @@ def datas_paciente_no_mes(p, ano: int, mes: int,
             continue
         out.append((dt, hr))
 
-    out = _aplicar_excecoes(db, p, out, ano, mes)
+    out = _aplicar_excecoes(db, p, out, ano, mes, excs=excs)
     return out
 
 
@@ -302,7 +311,7 @@ def _datas_legado(p, ano: int, mes: int) -> list:
 
 def mapa_ocupacao_mes(db, ano: int, mes: int) -> dict:
     """Retorna {data: {horario: [nomes]}} mostrando quem atende em cada dia/hora."""
-    from app.db.models import AgendaSessao, StatusPresenca, Paciente, StatusPaciente
+    from app.db.models import AgendaSessao, StatusPresenca, Paciente, StatusPaciente, Indisponibilidade, ContratoHistorico, ExcecaoHorario
     from sqlalchemy.orm import joinedload
     from datetime import date, time, datetime
     import calendar
@@ -314,6 +323,41 @@ def mapa_ocupacao_mes(db, ano: int, mes: int) -> dict:
     
     inicio_mes = date(ano, mes, 1)
     fim_mes = date(ano, mes, calendar.monthrange(ano, mes)[1])
+
+    # Pre-fetch Indisponibilidades for the month
+    indisps = db.query(Indisponibilidade).filter(
+        Indisponibilidade.data >= inicio_mes,
+        Indisponibilidade.data <= fim_mes).all()
+    indisp_set = set()
+    for r in indisps:
+        indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
+
+    # Pre-fetch ContratoHistorico for all active patients
+    p_ids = [p.id_paciente for p in pacientes]
+    if p_ids:
+        contratos = db.query(ContratoHistorico).filter(
+            ContratoHistorico.id_paciente.in_(p_ids)
+        ).order_by(ContratoHistorico.vigente_de.desc()).all()
+    else:
+        contratos = []
+    
+    # Group contracts by patient ID
+    contratos_dict = {}
+    for c in contratos:
+        contratos_dict.setdefault(c.id_paciente, []).append(c)
+
+    # Pre-fetch ExcecaoHorario for all active patients
+    if p_ids:
+        excecoes = db.query(ExcecaoHorario).filter(
+            ExcecaoHorario.id_paciente.in_(p_ids)
+        ).all()
+    else:
+        excecoes = []
+    
+    # Group exceptions by patient ID
+    excecoes_dict = {}
+    for e in excecoes:
+        excecoes_dict.setdefault(e.id_paciente, []).append(e)
 
     # 1. Busca sessões canceladas do mês (SQL filtrado)
     canc = db.query(AgendaSessao).filter(
@@ -330,7 +374,12 @@ def mapa_ocupacao_mes(db, ano: int, mes: int) -> dict:
                       s.data_hora_fim.strftime("%H:%M")))
                       
     for p in pacientes:
-        for dt, hr in datas_paciente_no_mes(p, ano, mes, db=db):
+        hist_p = contratos_dict.get(p.id_paciente, [])
+        excs_p = excecoes_dict.get(p.id_paciente, [])
+        for dt, hr in datas_paciente_no_mes(p, ano, mes, db=db,
+                                            indisp_set=indisp_set,
+                                            historico=hist_p,
+                                            excs=excs_p):
             if (p.id_paciente, dt, hr) in set_canc:
                 continue
             mapa.setdefault(dt, {}).setdefault(hr, []).append(p.nome)

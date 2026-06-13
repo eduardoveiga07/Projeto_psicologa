@@ -13,6 +13,10 @@ def tela_pagamentos():
     mostrar_flash()
     ui_header("Controle de Pagamentos", icon="💸")
 
+    # Pre-fetch all patients to avoid N+1 queries
+    pacientes = db().query(Paciente).all()
+    pacientes_dict = {p.id_paciente: p for p in pacientes}
+
     # KPIs superiores com visual premium
     pend_kpis = db().query(AgendaSessao).filter(
         AgendaSessao.status_pagamento.in_([
@@ -21,7 +25,7 @@ def tela_pagamentos():
         
     total_valor_pendente = 0.0
     for s in pend_kpis:
-        p = db().get(Paciente, s.id_paciente)
+        p = pacientes_dict.get(s.id_paciente)
         if p:
             total_valor_pendente += float(p.valor_sessao)
             
@@ -78,7 +82,7 @@ def tela_pagamentos():
     # PDF com TODAS as sessões e seus pagamentos (sempre disponível).
     todas = []
     for s in sessoes:
-        p = db().get(Paciente, s.id_paciente)
+        p = pacientes_dict.get(s.id_paciente)
         todas.append({
             "Paciente": p.nome if p else "?",
             "Data": s.data_hora_inicio.strftime("%d/%m/%Y %H:%M"),
@@ -96,7 +100,7 @@ def tela_pagamentos():
     st.write("---")
     st.subheader("Últimas 100 sessões registradas")
     for s in sessoes:
-        p = db().get(Paciente, s.id_paciente)
+        p = pacientes_dict.get(s.id_paciente)
         nome = p.nome if p else "?"
         quando = s.data_hora_inicio.strftime("%d/%m/%Y %H:%M")
         with st.expander(f"{nome} — {quando} — {s.status_presenca.value} / {s.status_pagamento.value}"):
@@ -134,7 +138,7 @@ def tela_pagamentos():
     
     linhas_aberto = []
     for s in pend_kpis:
-        p = db().get(Paciente, s.id_paciente)
+        p = pacientes_dict.get(s.id_paciente)
         linhas_aberto.append({
             "Pagar em Lote": False,
             "Paciente": p.nome if p else "?",
