@@ -309,98 +309,73 @@ def _datas_legado(p, ano: int, mes: int) -> list:
     return out
 
 
+def sessoes_perdidas_no_mes_query(db, p, ano: int, mes: int) -> list:
+    """Retorna [(data, horario, motivo)] de sessoes canceladas fisicamente no banco no mes,
+    que possuem remarcada_motivo preenchido e nao foram remarcadas ainda."""
+    from app.db.models import AgendaSessao, StatusPresenca
+    from datetime import date, time, datetime
+    import calendar
+    
+    inicio_mes = datetime.combine(date(ano, mes, 1), time.min)
+    fim_mes = datetime.combine(date(ano, mes, calendar.monthrange(ano, mes)[1]), time.max)
+    
+    # Busca todas as sessoes do paciente no mes que estao canceladas e tem motivo
+    sessoes_canc = db.query(AgendaSessao).filter(
+        AgendaSessao.id_paciente == p.id_paciente,
+        AgendaSessao.data_hora_inicio >= inicio_mes,
+        AgendaSessao.data_hora_inicio <= fim_mes,
+        AgendaSessao.status_presenca == StatusPresenca.CANCELADA,
+        AgendaSessao.remarcada_motivo.isnot(None)
+    ).all()
+    
+    # Busca datas que ja foram remarcadas
+    ja_remarcadas = {
+        s.remarcada_de for s in db.query(AgendaSessao.remarcada_de).filter(
+            AgendaSessao.id_paciente == p.id_paciente,
+            AgendaSessao.remarcada_de.isnot(None)
+        ).all() if s.remarcada_de is not None
+    }
+    
+    perdidas = []
+    for s in sessoes_canc:
+        dt = s.data_hora_inicio.date()
+        if dt in ja_remarcadas:
+            continue
+        hr = f"{s.data_hora_inicio.strftime('%H:%M')} - {s.data_hora_fim.strftime('%H:%M')}"
+        perdidas.append((dt, hr, s.remarcada_motivo))
+        
+    return perdidas
+
+
 def mapa_ocupacao_mes(db, ano: int, mes: int) -> dict:
     """Retorna {data: {horario: [nomes]}} mostrando quem atende em cada dia/hora."""
-    from app.db.models import AgendaSessao, StatusPresenca, Paciente, StatusPaciente, Indisponibilidade, ContratoHistorico, ExcecaoHorario
+    from app.db.models import AgendaSessao, StatusPresenca
     from sqlalchemy.orm import joinedload
     from datetime import date, time, datetime
     import calendar
     
-    pacientes = db.query(Paciente).filter(
-        Paciente.status == StatusPaciente.ATIVO,
-        Paciente.em_avaliacao == False).all()  # noqa: E712
+    inicio_mes = datetime.combine(date(ano, mes, 1), time.min)
+    fim_mes = datetime.combine(date(ano, mes, calendar.monthrange(ano, mes)[1]), time.max)
+    
+    # Query all physical sessions for the month that are NOT cancelled
+    sessoes = db.query(AgendaSessao).options(joinedload(AgendaSessao.paciente)).filter(
+        AgendaSessao.data_hora_inicio >= inicio_mes,
+        AgendaSessao.data_hora_inicio <= fim_mes,
+        AgendaSessao.status_presenca != StatusPresenca.CANCELADA,
+        AgendaSessao.status_presenca != StatusPresenca.CANCELOU_COM_ANTECEDENCIA,
+        AgendaSessao.status_presenca != StatusPresenca.IMPREVISTO
+    ).all()
+    
     mapa = {}
-    
-    inicio_mes = date(ano, mes, 1)
-    fim_mes = date(ano, mes, calendar.monthrange(ano, mes)[1])
-
-    # Pre-fetch Indisponibilidades for the month
-    indisps = db.query(Indisponibilidade).filter(
-        Indisponibilidade.data >= inicio_mes,
-        Indisponibilidade.data <= fim_mes).all()
-    indisp_set = set()
-    for r in indisps:
-        indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
-
-    # Pre-fetch ContratoHistorico for all active patients
-    p_ids = [p.id_paciente for p in pacientes]
-    if p_ids:
-        contratos = db.query(ContratoHistorico).filter(
-            ContratoHistorico.id_paciente.in_(p_ids)
-        ).order_by(ContratoHistorico.vigente_de.desc()).all()
-    else:
-        contratos = []
-    
-    # Group contracts by patient ID
-    contratos_dict = {}
-    for c in contratos:
-        contratos_dict.setdefault(c.id_paciente, []).append(c)
-
-    # Pre-fetch ExcecaoHorario for all active patients
-    if p_ids:
-        excecoes = db.query(ExcecaoHorario).filter(
-            ExcecaoHorario.id_paciente.in_(p_ids)
-        ).all()
-    else:
-        excecoes = []
-    
-    # Group exceptions by patient ID
-    excecoes_dict = {}
-    for e in excecoes:
-        excecoes_dict.setdefault(e.id_paciente, []).append(e)
-
-    # 1. Busca sessões canceladas do mês (SQL filtrado)
-    canc = db.query(AgendaSessao).filter(
-        AgendaSessao.status_presenca == StatusPresenca.CANCELADA,
-        AgendaSessao.data_hora_inicio >= datetime.combine(inicio_mes, time.min),
-        AgendaSessao.data_hora_inicio <= datetime.combine(fim_mes, time.max)
-    ).all()
-    
-    set_canc = set()
-    for s in canc:
-        d = s.data_hora_inicio.date()
-        set_canc.add((s.id_paciente, d,
-                      s.data_hora_inicio.strftime("%H:%M") + " - " +
-                      s.data_hora_fim.strftime("%H:%M")))
-                      
-    for p in pacientes:
-        hist_p = contratos_dict.get(p.id_paciente, [])
-        excs_p = excecoes_dict.get(p.id_paciente, [])
-        for dt, hr in datas_paciente_no_mes(p, ano, mes, db=db,
-                                            indisp_set=indisp_set,
-                                            historico=hist_p,
-                                            excs=excs_p):
-            if (p.id_paciente, dt, hr) in set_canc:
-                continue
-            mapa.setdefault(dt, {}).setdefault(hr, []).append(p.nome)
-            
-    # 2. Busca sessões agendadas do mês (SQL filtrado + joinedload)
-    pos = db.query(AgendaSessao).options(joinedload(AgendaSessao.paciente)).filter(
-        AgendaSessao.status_presenca == StatusPresenca.AGENDADA,
-        AgendaSessao.data_hora_inicio >= datetime.combine(inicio_mes, time.min),
-        AgendaSessao.data_hora_inicio <= datetime.combine(fim_mes, time.max)
-    ).all()
-    
-    for s in pos:
-        d = s.data_hora_inicio.date()
+    for s in sessoes:
         p_obj = s.paciente
-        if not p_obj: continue
-        hr = (s.data_hora_inicio.strftime("%H:%M") + " - " +
-              s.data_hora_fim.strftime("%H:%M"))
-        # evita duplicar se ja vem da recorrencia
-        nomes_existentes = mapa.get(d, {}).get(hr, [])
-        if p_obj.nome not in nomes_existentes:
-            mapa.setdefault(d, {}).setdefault(hr, []).append(p_obj.nome)
+        if not p_obj or p_obj.em_avaliacao:
+            continue
+        d = s.data_hora_inicio.date()
+        hr = f"{s.data_hora_inicio.strftime('%H:%M')} - {s.data_hora_fim.strftime('%H:%M')}"
+        
+        mapa.setdefault(d, {}).setdefault(hr, []).append(p_obj.nome)
+        
     return mapa
 
 

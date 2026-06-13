@@ -8,7 +8,7 @@ from app.screens.shared import (
 )
 from app.services.feriados import feriados_brasil
 from app.services.pdf_export import gerar_pdf
-from app.services.ocupacao import sessoes_perdidas_no_mes
+from app.services.ocupacao import sessoes_perdidas_no_mes_query
 
 
 def tela_agenda():
@@ -71,36 +71,9 @@ def tela_agenda():
     ativos_perdidas = db().query(Paciente).filter(
             Paciente.status == StatusPaciente.ATIVO,
             Paciente.em_avaliacao == False).all()  # noqa: E712
-    p_ids = [p.id_paciente for p in ativos_perdidas]
-    
-    if p_ids:
-        # Pre-fetch ja_remarcadas for all active patients
-        from app.db.models import AgendaSessao, ContratoHistorico
-        remarcadas_db = db().query(AgendaSessao.id_paciente, AgendaSessao.remarcada_de).filter(
-            AgendaSessao.id_paciente.in_(p_ids),
-            AgendaSessao.remarcada_de.isnot(None)).all()
-        remarcadas_dict = {}
-        for id_p, dt_rem in remarcadas_db:
-            remarcadas_dict.setdefault(id_p, set()).add(dt_rem)
-            
-        # Pre-fetch ContratoHistorico for all active patients
-        contratos_db = db().query(ContratoHistorico).filter(
-            ContratoHistorico.id_paciente.in_(p_ids)
-        ).order_by(ContratoHistorico.vigente_de.desc()).all()
-        contratos_dict = {}
-        for c in contratos_db:
-            contratos_dict.setdefault(c.id_paciente, []).append(c)
-    else:
-        remarcadas_dict = {}
-        contratos_dict = {}
-
     for p_a in ativos_perdidas:
-        hist_p = contratos_dict.get(p_a.id_paciente, [])
-        rem_p = remarcadas_dict.get(p_a.id_paciente, set())
-        for dt, hr, mot in sessoes_perdidas_no_mes(
-                p_a, int(cal_ano), int(cal_mes), db(),
-                indisp_set=indisp_set, feriados_set=fer_dict,
-                historico=hist_p, ja_remarcadas=rem_p):
+        for dt, hr, mot in sessoes_perdidas_no_mes_query(
+                db(), p_a, int(cal_ano), int(cal_mes)):
             perdidas_total.append((dt, hr, p_a.nome, mot))
     if perdidas_total:
         perdidas_total.sort()
@@ -217,10 +190,18 @@ def tela_agenda():
                             hi, _ = hr.split(" - ")
                             h, m = map(int, hi.split(":"))
                             ini = datetime.combine(data_d, time(h, m))
-                            db().add(AgendaSessao(id_paciente=p_obj.id_paciente,
-                                data_hora_inicio=ini,
-                                data_hora_fim=ini.replace(hour=h + 1),
-                                status_presenca=StatusPresenca.CANCELADA))
+                            sessao_existente = db().query(AgendaSessao).filter(
+                                AgendaSessao.id_paciente == p_obj.id_paciente,
+                                AgendaSessao.data_hora_inicio == ini
+                            ).first()
+                            if sessao_existente:
+                                sessao_existente.status_presenca = StatusPresenca.CANCELADA
+                            else:
+                                db().add(AgendaSessao(id_paciente=p_obj.id_paciente,
+                                    data_hora_inicio=ini,
+                                    data_hora_fim=ini.replace(hour=h + 1),
+                                    status_presenca=StatusPresenca.CANCELADA,
+                                    recorrente=True))
                             try: db().commit()
                             except Exception: db().rollback()
                         del st.session_state[f"calEx_{uk}"]
@@ -259,6 +240,11 @@ def tela_agenda():
                                     p_obj.dias_semana = novo_dia_nome
                                     p_obj.horario_atendimento = f"{novo_dia_nome}={nh}"
                                     db().commit()
+                                    from app.services.contrato import abrir_periodo
+                                    abrir_periodo(db(), p_obj, datetime.now().date())
+                                    from app.services.agenda_geracao import AgendaGeracaoService
+                                    AgendaGeracaoService.processar_mudanca_contrato(db(), p_obj, datetime.now().date())
+                                    db().commit()
                                     db().expire_all()
                                     st.success(f"Cadastro de {alvo} atualizado "
                                                f"para {novo_dia_nome} {nh}.")
@@ -268,17 +254,28 @@ def tela_agenda():
                                     st.error("Domingo não é permitido.")
                             else:
                                 ini_orig = datetime.combine(data_d, time(h, m))
-                                db().add(AgendaSessao(
-                                    id_paciente=p_obj.id_paciente,
-                                    data_hora_inicio=ini_orig,
-                                    data_hora_fim=ini_orig.replace(hour=h + 1),
-                                    status_presenca=StatusPresenca.CANCELADA))
+                                sessao_orig = db().query(AgendaSessao).filter(
+                                    AgendaSessao.id_paciente == p_obj.id_paciente,
+                                    AgendaSessao.data_hora_inicio == ini_orig
+                                ).first()
+                                if sessao_orig:
+                                    sessao_orig.status_presenca = StatusPresenca.CANCELADA
+                                else:
+                                    db().add(AgendaSessao(
+                                        id_paciente=p_obj.id_paciente,
+                                        data_hora_inicio=ini_orig,
+                                        data_hora_fim=ini_orig.replace(hour=h + 1),
+                                        status_presenca=StatusPresenca.CANCELADA,
+                                        recorrente=True))
                                 ini_nova = datetime.combine(nd, time(hh, mm))
                                 db().add(AgendaSessao(
                                     id_paciente=p_obj.id_paciente,
                                     data_hora_inicio=ini_nova,
                                     data_hora_fim=ini_nova.replace(hour=hh + 1),
-                                    status_presenca=StatusPresenca.AGENDADA))
+                                    status_presenca=StatusPresenca.AGENDADA,
+                                    valor_sessao=p_obj.valor_sessao,
+                                    recorrente=False,
+                                    remarcada_de=data_d))
                                 try:
                                     db().commit()
                                     db().expire_all()

@@ -12,113 +12,56 @@ def previsto_paciente(p: Paciente, ano: int, mes: int,
                       bloqueadas: set = None, db=None,
                       historico=None, pontuais=None) -> dict:
     """Previsao de sessoes e faturamento de UM paciente no mes.
-    Pro-rateado: cada data candidata del mes eh avaliada com o snapshot
-    vigente NAQUELA data (corrige mudanca de contrato no meio do mes)."""
-    import calendar as _cal
-    from app.services.calendario import _DIA_IDX
-    from app.services.feriados import feriados_brasil
-    from app.db.models import DiaSemana as _DS, ContratoHistorico
+    Sob a arquitetura de sessões físicas, consulta diretamente o banco de dados
+    para somar as sessões agendadas/realizadas do mês."""
+    from decimal import Decimal
+    from datetime import date, time, datetime
+    import calendar
+    from app.db.models import Frequencia, AgendaSessao, StatusPresenca, StatusPagamento, ContratoHistorico
     from app.services.contrato import snapshot_vigente_em_memoria
 
-    fim_mes = date(ano, mes, 28)
-    if p.em_avaliacao or (p.ativo_desde and p.ativo_desde > fim_mes):
-        return {"paciente": p.nome, "sessoes_previstas": 0,
-                "faturamento_previsto": Decimal(0)}
-
-    # Sem db: comportamento legado (campos atuais do paciente)
     if db is None:
         return _previsto_legado(p, ano, mes, bloqueadas)
 
-    _, total_dias = _cal.monthrange(ano, mes)
-    fer = feriados_brasil(ano)
-    bloq = bloqueadas or set()
-    n = 0
-    fat = Decimal(0)
-    datas_recorrentes = set()  # para evitar dupla contagem com pontuais
-
-    # Carrega todo o historico de contratos do paciente de uma vez
+    # Carrega todo o histórico de contratos do paciente de uma vez se não vier na chamada
     if historico is None:
         historico = db.query(ContratoHistorico).filter(
             ContratoHistorico.id_paciente == p.id_paciente
         ).order_by(ContratoHistorico.vigente_de.desc()).all()
 
-    # Para cada dia do mes, ve qual snapshot vigente e se conta sessao
-    for d in range(1, total_dias + 1):
-        dt = date(ano, mes, d)
-        if dt in fer or dt in bloq:
-            continue
-        # Antes do ativo_desde, nao conta
-        if p.ativo_desde and dt < p.ativo_desde:
-            continue
-        snap = snapshot_vigente_em_memoria(historico, dt)
-        if not snap:
-            continue
-        # PERSONALIZADO: usa o snapshot vigente no fim do mes (count fixo)
-        if snap.frequencia == Frequencia.PERSONALIZADO:
-            continue  # tratado fora do loop
-        dias_csv = snap.dias_semana or ""
-        if not dias_csv:
-            continue
-        idx_dia = _cal.weekday(ano, mes, d)
-        dias_lista = [x.strip() for x in dias_csv.split(",") if x.strip()]
-        # Esse dia da semana eh um dos dias do contrato vigente?
-        bate = False
-        for nome in dias_lista:
-            try:
-                if _DIA_IDX[_DS(nome)] == idx_dia:
-                    bate = True; break
-            except (ValueError, KeyError):
-                pass
-        if not bate:
-            continue
-        # Regras de frequencia (quinzenal/mensal precisam de filtro extra)
-        if snap.frequencia == Frequencia.QUINZENAL:
-            iso_sem = dt.isocalendar()[1]
-            paridade = "par" if iso_sem % 2 == 0 else "impar"
-            if (snap.paridade_quinzenal or "impar") != paridade:
-                continue
-        elif snap.frequencia == Frequencia.MENSAL:
-            # Conta posicao da ocorrencia desse dia da semana no mes
-            ocorr = sum(1 for dd in range(1, d + 1)
-                        if _cal.weekday(ano, mes, dd) == idx_dia)
-            alvo = snap.semana_do_mes or 1
-            if alvo == 5:  # Ultima
-                total_ocorr = sum(1 for dd in range(1, total_dias + 1)
-                                  if _cal.weekday(ano, mes, dd) == idx_dia)
-                if ocorr != total_ocorr:
-                    continue
-            else:
-                if ocorr != alvo:
-                    continue
-        # SEMANAL / DUAS_SEMANA / TRES_SEMANA: bate dia da semana ja basta
-        n += 1
-        fat += snap.valor_sessao
-        datas_recorrentes.add(dt)
-
-    # PERSONALIZADO: usa snapshot do fim do mes (count fixo nao pro-rateavel)
+    fim_mes = date(ano, mes, calendar.monthrange(ano, mes)[1])
     snap_fim = snapshot_vigente_em_memoria(historico, fim_mes)
-    if snap_fim and snap_fim.frequencia == Frequencia.PERSONALIZADO \
-            and snap_fim.sessoes_mes_custom:
-        n = snap_fim.sessoes_mes_custom
-        fat = Decimal(n) * snap_fim.valor_sessao
 
-    # Sessoes pontuais AGENDADAS no mes (avulsas/remarcadas) -> entram no previsto
-    if pontuais is None:
-        from app.db.models import AgendaSessao, StatusPresenca
-        pontuais = db.query(AgendaSessao).filter(
-            AgendaSessao.id_paciente == p.id_paciente,
-            AgendaSessao.status_presenca == StatusPresenca.AGENDADA,
-            extract("year", AgendaSessao.data_hora_inicio) == ano,
-            extract("month", AgendaSessao.data_hora_inicio) == mes,
-        ).all()
-    for s in pontuais:
-        d_pont = s.data_hora_inicio.date()
-        # Se a data ja foi contada pela recorrencia, pula
-        if d_pont in datas_recorrentes:
-            continue
-        sn = snapshot_vigente_em_memoria(historico, d_pont)
-        n += 1
-        fat += (sn.valor_sessao if sn else p.valor_sessao)
+    # 1. Se for PERSONALIZADO, usa a regra de quantidade fixa do contrato
+    if snap_fim and snap_fim.frequencia == Frequencia.PERSONALIZADO:
+        n = snap_fim.sessoes_mes_custom or 0
+        fat = Decimal(n) * snap_fim.valor_sessao
+        return {"paciente": p.nome, "sessoes_previstas": n,
+                "faturamento_previsto": fat}
+
+    # 2. Caso contrário, busca as sessões físicas do paciente no mês
+    inicio_mes = datetime.combine(date(ano, mes, 1), time.min)
+    fim_mes_dt = datetime.combine(fim_mes, time.max)
+
+    # Sessões válidas para o previsto: tudo exceto CANCELADA (por feriado/bloqueio) e ISENTO (ex: cancelamento >24h)
+    sessoes_mes = db.query(AgendaSessao).filter(
+        AgendaSessao.id_paciente == p.id_paciente,
+        AgendaSessao.data_hora_inicio >= inicio_mes,
+        AgendaSessao.data_hora_inicio <= fim_mes_dt,
+        AgendaSessao.status_presenca != StatusPresenca.CANCELADA,
+        AgendaSessao.status_presenca != StatusPresenca.CANCELOU_COM_ANTECEDENCIA,
+        AgendaSessao.status_presenca != StatusPresenca.IMPREVISTO,
+        AgendaSessao.status_pagamento != StatusPagamento.ISENTO
+    ).all()
+
+    n = len(sessoes_mes)
+    fat = Decimal(0)
+    for s in sessoes_mes:
+        if s.valor_sessao is not None:
+            fat += s.valor_sessao
+        else:
+            snap = snapshot_vigente_em_memoria(historico, s.data_hora_inicio.date())
+            fat += (snap.valor_sessao if snap else p.valor_sessao)
 
     return {"paciente": p.nome, "sessoes_previstas": n,
             "faturamento_previsto": fat}
@@ -126,6 +69,8 @@ def previsto_paciente(p: Paciente, ano: int, mes: int,
 
 def _previsto_legado(p, ano, mes, bloqueadas):
     """Fallback sem historico (compatibilidade quando db=None)."""
+    import calendar
+    from app.services.calendario import sessoes_previstas_lista
     if p.frequencia == Frequencia.PERSONALIZADO and p.sessoes_mes_custom:
         n = p.sessoes_mes_custom
     else:
@@ -139,23 +84,26 @@ def _previsto_legado(p, ano, mes, bloqueadas):
 def realizado_paciente(db, p: Paciente, ano: int, mes: int,
                        historico=None, sessoes=None) -> dict:
     """Sessoes que geram receita: Realizada ou Cancelou -24h (cobra).
-    Cada sessao eh valorada pelo snapshot vigente na sua data (corrige
-    mudancas de valor retroativas).
-    Tambem calcula a inadimplencia (sessoes faturadas com status PENDENTE ou ATRASADO)."""
+    Cada sessao eh valorada pelo valor_sessao físico registrado nela,
+    caindo de volta para o snapshot de contrato caso seja nulo."""
+    from decimal import Decimal
+    from datetime import date, time, datetime
+    import calendar
     from app.db.models import AgendaSessao, StatusPresenca, StatusPagamento, ContratoHistorico
     from app.services.contrato import snapshot_vigente_em_memoria
 
     if sessoes is None:
+        inicio_mes = datetime.combine(date(ano, mes, 1), time.min)
+        fim_mes = datetime.combine(date(ano, mes, calendar.monthrange(ano, mes)[1]), time.max)
         sessoes = db.query(AgendaSessao).filter(
             AgendaSessao.id_paciente == p.id_paciente,
             AgendaSessao.status_presenca.in_([
                 StatusPresenca.REALIZADA,
                 StatusPresenca.CANCELOU_EM_CIMA]),
-            extract("year", AgendaSessao.data_hora_inicio) == ano,
-            extract("month", AgendaSessao.data_hora_inicio) == mes,
+            AgendaSessao.data_hora_inicio >= inicio_mes,
+            AgendaSessao.data_hora_inicio <= fim_mes
         ).all()
 
-    # Carrega todo o historico de contratos do paciente de uma vez
     if historico is None:
         historico = db.query(ContratoHistorico).filter(
             ContratoHistorico.id_paciente == p.id_paciente
@@ -164,14 +112,17 @@ def realizado_paciente(db, p: Paciente, ano: int, mes: int,
     fat = Decimal(0)
     inad = Decimal(0)
     for s in sessoes:
-        snap = snapshot_vigente_em_memoria(historico, s.data_hora_inicio.date())
-        valor = (snap.valor_sessao if snap else p.valor_sessao)
+        if s.valor_sessao is not None:
+            valor = s.valor_sessao
+        else:
+            snap = snapshot_vigente_em_memoria(historico, s.data_hora_inicio.date())
+            valor = (snap.valor_sessao if snap else p.valor_sessao)
         fat += valor
         if s.status_pagamento in [StatusPagamento.PENDENTE, StatusPagamento.ATRASADO]:
             inad += valor
+
     return {"paciente": p.nome, "sessoes_realizadas": len(sessoes),
             "faturamento_realizado": fat, "inadimplencia": inad}
-
 
 
 def consolidado_mes(db, ano: int, mes: int) -> dict:

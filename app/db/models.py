@@ -93,8 +93,8 @@ class AgendaSessao(Base):
     id_sessao = Column(Integer, primary_key=True, autoincrement=True)
     id_paciente = Column(UUID(as_uuid=True),
                          ForeignKey("pacientes.id_paciente", ondelete="CASCADE"),
-                         nullable=False)
-    data_hora_inicio = Column(DateTime, nullable=False)
+                         nullable=False, index=True)
+    data_hora_inicio = Column(DateTime, nullable=False, index=True)
     data_hora_fim = Column(DateTime, nullable=False)
     status_presenca = Column(Enum(StatusPresenca), nullable=False,
                              default=StatusPresenca.AGENDADA)
@@ -105,9 +105,13 @@ class AgendaSessao(Base):
     # registramos aqui a data original que foi "pulada" e o motivo.
     remarcada_de = Column(Date, nullable=True)
     remarcada_motivo = Column(String(120), nullable=True)
+    
+    # Novas colunas para sessões reais persistidas
+    valor_sessao = Column(Numeric(10, 2), nullable=True)
+    recorrente = Column(Boolean, nullable=False, default=True)
+    
     paciente = relationship("Paciente", back_populates="sessoes")
     __table_args__ = (
-        UniqueConstraint("data_hora_inicio", name="uq_horario_unico"),
         CheckConstraint("data_hora_fim > data_hora_inicio", name="ck_sessoes_datas"),
     )
 

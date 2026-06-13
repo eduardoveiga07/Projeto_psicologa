@@ -197,6 +197,8 @@ def tela_calendario():
                                 horario=hr,
                                 motivo=MotivoIndisp(motivo),
                                 observacao=obs_final))
+                            from app.services.agenda_geracao import AgendaGeracaoService
+                            AgendaGeracaoService.processar_bloqueio_agenda(db(), d, d, horario=hr)
                             qtd += 1
                             d += timedelta(days=1)
                         db().commit()
@@ -343,6 +345,8 @@ def tela_calendario():
                                     horario=hr_d,
                                     motivo=MotivoIndisp(nv_mot),
                                     observacao=nv_obs))
+                                from app.services.agenda_geracao import AgendaGeracaoService
+                                AgendaGeracaoService.processar_bloqueio_agenda(db(), d, d, horario=hr_d)
                                 d += timedelta(days=1)
                             db().commit()
                             registrar(db(), st.session_state.username,

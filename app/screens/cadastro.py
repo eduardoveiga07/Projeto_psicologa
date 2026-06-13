@@ -410,10 +410,14 @@ def tela_cadastro():
                                 novo_p = db().query(Paciente).filter(
                                     Paciente.nome == nome).order_by(
                                     Paciente.criado_em.desc()).first()
-                                # Abre 1o periodo do historico de contrato
                                 from app.services.contrato import abrir_periodo
                                 abrir_periodo(db(), novo_p,
                                     novo_p.ativo_desde or datetime.now().date())
+                                from app.services.agenda_geracao import AgendaGeracaoService
+                                AgendaGeracaoService.gerar_sessoes_futuras(
+                                    db(), novo_p, novo_p.ativo_desde or datetime.now().date()
+                                )
+                                db().commit()
                                 hj = datetime.now().date()
                                 r = detectar_conflitos(db(), novo_p, hj.year, hj.month,
                                                        id_excluir=novo_p.id_paciente)
@@ -564,6 +568,9 @@ def tela_cadastro():
                             db().commit()
                             from app.services.contrato import abrir_periodo
                             abrir_periodo(db(), p, ad)
+                            from app.services.agenda_geracao import AgendaGeracaoService
+                            AgendaGeracaoService.gerar_sessoes_futuras(db(), p, ad)
+                            db().commit()
                             del st.session_state[f"converter_{p.id_paciente}"]
                             flash(f"{p.nome} agora é recorrente.", "success")
                             st.rerun()
@@ -582,6 +589,8 @@ def tela_cadastro():
             if c2.button("Reativar", key=f"rea_{p.id_paciente}"):
                 p.status = StatusPaciente.ATIVO
                 p.data_desativacao = None
+                from app.services.agenda_geracao import AgendaGeracaoService
+                AgendaGeracaoService.gerar_sessoes_futuras(db(), p, datetime.now().date())
                 db().commit()
                 registrar(db(), st.session_state.username,
                           "PACIENTE_REATIVADO", "")
@@ -645,6 +654,8 @@ def tela_cadastro():
             if c4.button("Desativar", key=f"des_{p.id_paciente}"):
                 p.status = StatusPaciente.INATIVO
                 p.data_desativacao = datetime.now().date()
+                from app.services.agenda_geracao import AgendaGeracaoService
+                AgendaGeracaoService.remover_sessoes_futuras(db(), p.id_paciente, p.data_desativacao)
                 db().commit()
                 registrar(db(), st.session_state.username,
                           "PACIENTE_DESATIVADO", "")
@@ -746,6 +757,9 @@ def tela_cadastro():
                             if mudou:
                                 from app.services.contrato import abrir_periodo
                                 abrir_periodo(db(), p, datetime.now().date())
+                                from app.services.agenda_geracao import AgendaGeracaoService
+                                AgendaGeracaoService.processar_mudanca_contrato(db(), p, datetime.now().date())
+                                db().commit()
                             del st.session_state[f"editar_{p.id_paciente}"]
                             registrar(db(), st.session_state.username,
                                       "PACIENTE_EDITADO", "alteracao de cadastro")
