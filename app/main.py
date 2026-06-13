@@ -1,4 +1,9 @@
 """App Streamlit - Gestao Consultorio Psicologia. Roda: streamlit run app/main.py"""
+import sys
+import os
+# Adiciona o diretorio raiz ao path para garantir as importacoes do modulo 'app'
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import locale
 try:
     locale.setlocale(locale.LC_ALL, "pt_BR.UTF-8")
