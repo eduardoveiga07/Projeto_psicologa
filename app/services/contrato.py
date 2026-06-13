@@ -25,6 +25,16 @@ def snapshot_vigente(db, id_paciente, ref: date) -> ContratoHistorico | None:
     return q.first()
 
 
+def snapshot_vigente_em_memoria(historico: list, ref: date) -> ContratoHistorico | None:
+    """Retorna o contrato vigente na data 'ref' a partir da lista 'historico' em memoria.
+    A lista 'historico' deve estar ordenada por vigente_de desc (mais recente primeiro)."""
+    for snap in historico:
+        if snap.vigente_de <= ref:
+            if snap.vigente_ate is None or snap.vigente_ate >= ref:
+                return snap
+    return None
+
+
 def abrir_periodo(db, p: Paciente, inicio: date, commit: bool = True
                   ) -> ContratoHistorico:
     """Fecha o periodo vigente (se houver) e abre um novo a partir de 'inicio'

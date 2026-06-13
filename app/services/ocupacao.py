@@ -96,19 +96,22 @@ def _aplicar_excecoes(db, p, datas_padrao: list, ano: int, mes: int) -> list:
     return sorted(resultado)
 
 
-def sessoes_perdidas_no_mes(p: Paciente, ano: int, mes: int,
+def sessoes_perdidas_no_mes(p, ano: int, mes: int,
                              db, indisp_set: set = None,
                              feriados_set: set = None) -> list:
     """Retorna [(data, horario, motivo)] de sessoes que CAIRIAM pela regra
     do contrato mas estao bloqueadas por feriado ou indisponibilidade.
     Usa indisp_set: {(data, 'dia_todo'|horario)}. feriados_set: {data}."""
+    from app.db.models import StatusPaciente, Frequencia, DiaSemana
+    import calendar
+    from datetime import date
     if p.em_avaliacao or p.status != StatusPaciente.ATIVO:
         return []
     if p.ativo_desde and p.ativo_desde > date(ano, mes, 28):
         return []
-    from app.services.contrato import snapshot_vigente
+    from app.services.contrato import snapshot_vigente_em_memoria
     from app.services.feriados import feriados_brasil
-    from app.db.models import AgendaSessao
+    from app.db.models import AgendaSessao, ContratoHistorico
     fer = feriados_set if feriados_set is not None else feriados_brasil(ano)
     indisp = indisp_set or set()
     # Datas que ja foram remarcadas (ignora-las)
@@ -117,13 +120,18 @@ def sessoes_perdidas_no_mes(p: Paciente, ano: int, mes: int,
             AgendaSessao.id_paciente == p.id_paciente,
             AgendaSessao.remarcada_de.isnot(None)).all()
     }
+    # Carrega todo o historico de contratos do paciente de uma vez
+    historico = db.query(ContratoHistorico).filter(
+        ContratoHistorico.id_paciente == p.id_paciente
+    ).order_by(ContratoHistorico.vigente_de.desc()).all()
+
     _, total_dias = calendar.monthrange(ano, mes)
     perdidas = []
     for d in range(1, total_dias + 1):
         dt = date(ano, mes, d)
         if p.ativo_desde and dt < p.ativo_desde:
             continue
-        snap = snapshot_vigente(db, p.id_paciente, dt)
+        snap = snapshot_vigente_em_memoria(historico, dt)
         if not snap:
             continue
         dias_csv = snap.dias_semana or ""
@@ -149,7 +157,7 @@ def sessoes_perdidas_no_mes(p: Paciente, ano: int, mes: int,
             ocorr = sum(1 for dd in range(1, d + 1)
                         if calendar.weekday(ano, mes, dd) == idx_hoje)
             alvo = snap.semana_do_mes or 1
-            if alvo >= 5:
+            if alvo == 5:  # Ultima
                 total_ocorr = sum(1 for dd in range(1, total_dias + 1)
                                   if calendar.weekday(ano, mes, dd) == idx_hoje)
                 if ocorr != total_ocorr:
@@ -172,11 +180,14 @@ def sessoes_perdidas_no_mes(p: Paciente, ano: int, mes: int,
     return perdidas
 
 
-def datas_paciente_no_mes(p: Paciente, ano: int, mes: int,
+def datas_paciente_no_mes(p, ano: int, mes: int,
                           db=None) -> list:
     """Retorna [(data, horario)] em que p atende neste mes.
     Pro-rateado: para cada data candidata, consulta o snapshot do contrato
-    vigente naquela data. Sem db, cai para os campos atuais (compat)."""
+    vigente naquela data. Sem db, cai para os campos antigos (compat)."""
+    from app.db.models import StatusPaciente, Frequencia, DiaSemana
+    import calendar
+    from datetime import date
     if p.em_avaliacao or p.status != StatusPaciente.ATIVO:
         return []
     if p.ativo_desde and p.ativo_desde > date(ano, mes, 28):
@@ -185,9 +196,9 @@ def datas_paciente_no_mes(p: Paciente, ano: int, mes: int,
     if db is None:
         return _datas_legado(p, ano, mes)
 
-    from app.services.contrato import snapshot_vigente
+    from app.services.contrato import snapshot_vigente_em_memoria
     from app.services.feriados import feriados_brasil
-    from app.db.models import Indisponibilidade
+    from app.db.models import Indisponibilidade, ContratoHistorico
     fer = feriados_brasil(ano)
     # Indisponibilidades do mes
     indisp_set = set()
@@ -198,13 +209,18 @@ def datas_paciente_no_mes(p: Paciente, ano: int, mes: int,
     for r in indisps:
         indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
 
+    # Carrega todo o historico de contratos do paciente de uma vez
+    historico = db.query(ContratoHistorico).filter(
+        ContratoHistorico.id_paciente == p.id_paciente
+    ).order_by(ContratoHistorico.vigente_de.desc()).all()
+
     _, total_dias = calendar.monthrange(ano, mes)
     out = []
     for d in range(1, total_dias + 1):
         dt = date(ano, mes, d)
         if p.ativo_desde and dt < p.ativo_desde:
             continue
-        snap = snapshot_vigente(db, p.id_paciente, dt)
+        snap = snapshot_vigente_em_memoria(historico, dt)
         if not snap:
             continue
         dias_csv = snap.dias_semana or ""
@@ -253,6 +269,7 @@ def datas_paciente_no_mes(p: Paciente, ano: int, mes: int,
 
 def _datas_legado(p, ano: int, mes: int) -> list:
     """Fallback sem db: usa campos atuais do paciente."""
+    from app.db.models import Frequencia
     dias = (p.dias_semana.split(",") if p.dias_semana
             else [p.dia_atendimento.value] if p.dia_atendimento else [])
     out = []
@@ -285,34 +302,49 @@ def _datas_legado(p, ano: int, mes: int) -> list:
 
 def mapa_ocupacao_mes(db, ano: int, mes: int) -> dict:
     """Retorna {data: {horario: [nomes]}} mostrando quem atende em cada dia/hora."""
-    from app.db.models import AgendaSessao, StatusPresenca
+    from app.db.models import AgendaSessao, StatusPresenca, Paciente, StatusPaciente
+    from sqlalchemy.orm import joinedload
+    from datetime import date, time, datetime
+    import calendar
+    
     pacientes = db.query(Paciente).filter(
         Paciente.status == StatusPaciente.ATIVO,
         Paciente.em_avaliacao == False).all()  # noqa: E712
     mapa = {}
-    # Excecoes: sessoes pontuais CANCELADAS (servem como "remover" recorrencia naquela data).
+    
+    inicio_mes = date(ano, mes, 1)
+    fim_mes = date(ano, mes, calendar.monthrange(ano, mes)[1])
+
+    # 1. Busca sessões canceladas do mês (SQL filtrado)
     canc = db.query(AgendaSessao).filter(
-        AgendaSessao.status_presenca == StatusPresenca.CANCELADA).all()
+        AgendaSessao.status_presenca == StatusPresenca.CANCELADA,
+        AgendaSessao.data_hora_inicio >= datetime.combine(inicio_mes, time.min),
+        AgendaSessao.data_hora_inicio <= datetime.combine(fim_mes, time.max)
+    ).all()
+    
     set_canc = set()
     for s in canc:
         d = s.data_hora_inicio.date()
-        if d.year == ano and d.month == mes:
-            set_canc.add((s.id_paciente, d,
-                          s.data_hora_inicio.strftime("%H:%M") + " - " +
-                          s.data_hora_fim.strftime("%H:%M")))
+        set_canc.add((s.id_paciente, d,
+                      s.data_hora_inicio.strftime("%H:%M") + " - " +
+                      s.data_hora_fim.strftime("%H:%M")))
+                      
     for p in pacientes:
         for dt, hr in datas_paciente_no_mes(p, ano, mes, db=db):
             if (p.id_paciente, dt, hr) in set_canc:
                 continue
             mapa.setdefault(dt, {}).setdefault(hr, []).append(p.nome)
-    # Sessoes pontuais AGENDADAS (excecoes positivas)
-    pos = db.query(AgendaSessao).filter(
-        AgendaSessao.status_presenca == StatusPresenca.AGENDADA).all()
+            
+    # 2. Busca sessões agendadas do mês (SQL filtrado + joinedload)
+    pos = db.query(AgendaSessao).options(joinedload(AgendaSessao.paciente)).filter(
+        AgendaSessao.status_presenca == StatusPresenca.AGENDADA,
+        AgendaSessao.data_hora_inicio >= datetime.combine(inicio_mes, time.min),
+        AgendaSessao.data_hora_inicio <= datetime.combine(fim_mes, time.max)
+    ).all()
+    
     for s in pos:
         d = s.data_hora_inicio.date()
-        if d.year != ano or d.month != mes: continue
-        p_obj = db.query(Paciente).filter(
-            Paciente.id_paciente == s.id_paciente).first()
+        p_obj = s.paciente
         if not p_obj: continue
         hr = (s.data_hora_inicio.strftime("%H:%M") + " - " +
               s.data_hora_fim.strftime("%H:%M"))
@@ -323,21 +355,29 @@ def mapa_ocupacao_mes(db, ano: int, mes: int) -> dict:
     return mapa
 
 
-def detectar_conflitos(db, p_novo: Paciente, ano: int, mes: int,
+def detectar_conflitos(db, p_novo, ano: int, mes: int,
                        id_excluir=None) -> dict:
     """Verifica conflitos olhando 3 meses (atual + 2 próximos)."""
+    from app.db.models import StatusPaciente, Paciente
     outros = db.query(Paciente).filter(
         Paciente.status == StatusPaciente.ATIVO,
         Paciente.em_avaliacao == False).all()  # noqa: E712
     livres, conflitos = [], []
     a, m = ano, mes
     for _ in range(3):
+        # Pre-calcula as datas de todos os outros pacientes para este mes
+        datas_outros = {}
+        for outro in outros:
+            if id_excluir and outro.id_paciente == id_excluir:
+                continue
+            datas_outros[outro.id_paciente] = datas_paciente_no_mes(outro, a, m, db=db)
+
         for dt, hr_novo in datas_paciente_no_mes(p_novo, a, m, db=db):
             choque = []
             for outro in outros:
                 if id_excluir and outro.id_paciente == id_excluir:
                     continue
-                for dt2, hr2 in datas_paciente_no_mes(outro, a, m, db=db):
+                for dt2, hr2 in datas_outros[outro.id_paciente]:
                     if dt == dt2 and faixas_sobrepoem(hr_novo, hr2):
                         choque.append(outro.nome)
             if choque:
@@ -352,7 +392,6 @@ def sugerir_horarios(db, p_novo, ano: int, mes: int, faixas_lista: list,
                      id_excluir=None) -> dict:
     """Retorna sugestões priorizadas: mesmo dia, mesmo horário em outros dias,
     qualquer livre na semana."""
-    from app.db.models import DiaSemana
     dia_novo = (p_novo.dias_semana or "").split(",")[0]
     hr_novo = None
     for par in (p_novo.horario_atendimento or "").split(","):
@@ -372,7 +411,7 @@ def sugerir_horarios(db, p_novo, ano: int, mes: int, faixas_lista: list,
     mesmo_dia = [h for h in faixas_lista
                  if not any(faixas_sobrepoem(h, oh)
                             for (od, oh) in ocup if od == dia_novo)]
-    # 2) Mesmo horario, outros dias
+    # 2) Mesmo horário, outros dias
     outros_dias = [d for d in dias_nomes if d != dia_novo
                    and (hr_novo is None or not any(
                        faixas_sobrepoem(hr_novo, oh)

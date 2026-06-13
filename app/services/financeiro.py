@@ -11,12 +11,13 @@ from app.services.contrato import snapshot_vigente
 def previsto_paciente(p: Paciente, ano: int, mes: int,
                       bloqueadas: set = None, db=None) -> dict:
     """Previsao de sessoes e faturamento de UM paciente no mes.
-    Pro-rateado: cada data candidata do mes eh avaliada com o snapshot
+    Pro-rateado: cada data candidata del mes eh avaliada com o snapshot
     vigente NAQUELA data (corrige mudanca de contrato no meio do mes)."""
     import calendar as _cal
     from app.services.calendario import _DIA_IDX
     from app.services.feriados import feriados_brasil
-    from app.db.models import DiaSemana as _DS
+    from app.db.models import DiaSemana as _DS, ContratoHistorico
+    from app.services.contrato import snapshot_vigente_em_memoria
 
     fim_mes = date(ano, mes, 28)
     if p.em_avaliacao or (p.ativo_desde and p.ativo_desde > fim_mes):
@@ -34,6 +35,11 @@ def previsto_paciente(p: Paciente, ano: int, mes: int,
     fat = Decimal(0)
     datas_recorrentes = set()  # para evitar dupla contagem com pontuais
 
+    # Carrega todo o historico de contratos do paciente de uma vez
+    historico = db.query(ContratoHistorico).filter(
+        ContratoHistorico.id_paciente == p.id_paciente
+    ).order_by(ContratoHistorico.vigente_de.desc()).all()
+
     # Para cada dia do mes, ve qual snapshot vigente e se conta sessao
     for d in range(1, total_dias + 1):
         dt = date(ano, mes, d)
@@ -42,7 +48,7 @@ def previsto_paciente(p: Paciente, ano: int, mes: int,
         # Antes do ativo_desde, nao conta
         if p.ativo_desde and dt < p.ativo_desde:
             continue
-        snap = snapshot_vigente(db, p.id_paciente, dt)
+        snap = snapshot_vigente_em_memoria(historico, dt)
         if not snap:
             continue
         # PERSONALIZADO: usa o snapshot vigente no fim do mes (count fixo)
@@ -88,7 +94,7 @@ def previsto_paciente(p: Paciente, ano: int, mes: int,
         datas_recorrentes.add(dt)
 
     # PERSONALIZADO: usa snapshot do fim do mes (count fixo nao pro-rateavel)
-    snap_fim = snapshot_vigente(db, p.id_paciente, fim_mes)
+    snap_fim = snapshot_vigente_em_memoria(historico, fim_mes)
     if snap_fim and snap_fim.frequencia == Frequencia.PERSONALIZADO \
             and snap_fim.sessoes_mes_custom:
         n = snap_fim.sessoes_mes_custom
@@ -107,7 +113,7 @@ def previsto_paciente(p: Paciente, ano: int, mes: int,
         # Se a data ja foi contada pela recorrencia, pula
         if d_pont in datas_recorrentes:
             continue
-        sn = snapshot_vigente(db, p.id_paciente, d_pont)
+        sn = snapshot_vigente_em_memoria(historico, d_pont)
         n += 1
         fat += (sn.valor_sessao if sn else p.valor_sessao)
 
@@ -132,6 +138,9 @@ def realizado_paciente(db, p: Paciente, ano: int, mes: int) -> dict:
     Cada sessao eh valorada pelo snapshot vigente na sua data (corrige
     mudancas de valor retroativas).
     Tambem calcula a inadimplencia (sessoes faturadas com status PENDENTE ou ATRASADO)."""
+    from app.db.models import AgendaSessao, StatusPresenca, StatusPagamento, ContratoHistorico
+    from app.services.contrato import snapshot_vigente_em_memoria
+
     sessoes = db.query(AgendaSessao).filter(
         AgendaSessao.id_paciente == p.id_paciente,
         AgendaSessao.status_presenca.in_([
@@ -140,17 +149,23 @@ def realizado_paciente(db, p: Paciente, ano: int, mes: int) -> dict:
         extract("year", AgendaSessao.data_hora_inicio) == ano,
         extract("month", AgendaSessao.data_hora_inicio) == mes,
     ).all()
+
+    # Carrega todo o historico de contratos do paciente de uma vez
+    historico = db.query(ContratoHistorico).filter(
+        ContratoHistorico.id_paciente == p.id_paciente
+    ).order_by(ContratoHistorico.vigente_de.desc()).all()
+
     fat = Decimal(0)
     inad = Decimal(0)
     for s in sessoes:
-        snap = snapshot_vigente(db, p.id_paciente,
-                                s.data_hora_inicio.date())
+        snap = snapshot_vigente_em_memoria(historico, s.data_hora_inicio.date())
         valor = (snap.valor_sessao if snap else p.valor_sessao)
         fat += valor
         if s.status_pagamento in [StatusPagamento.PENDENTE, StatusPagamento.ATRASADO]:
             inad += valor
     return {"paciente": p.nome, "sessoes_realizadas": len(sessoes),
             "faturamento_realizado": fat, "inadimplencia": inad}
+
 
 
 def consolidado_mes(db, ano: int, mes: int) -> dict:
