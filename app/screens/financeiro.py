@@ -10,6 +10,9 @@ from app.services.validacao_negocio import validar_valor_despesa
 
 
 def tela_financeiro():
+    if st.session_state.get("perfil") not in ["Dona", "Financeiro", "Programador"]:
+        st.error("Acesso negado. Você não tem permissão para visualizar o painel financeiro.")
+        st.stop()
     mostrar_flash()
     ui_header("Financeiro — Previsto vs Realizado", "Acompanhe o faturamento previsto, realizado, inadimplência e o controle de despesas do consultório.", icon="📊")
     c1, c2, c3 = st.columns(3)

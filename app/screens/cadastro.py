@@ -7,7 +7,7 @@ from app.screens.shared import (
     db, registrar, mostrar_flash, flash, invalidar_cache, FAIXAS_HORARIO, mapa_cached, ui_header
 )
 from app.db.models import (
-    Paciente, AgendaSessao, ContratoHistorico, ExcecaoHorario,
+    Paciente, AgendaSessao, ContratoHistorico,
     TipoContrato, Frequencia, DiaSemana, StatusPaciente, StatusPresenca,
     Indisponibilidade
 )
@@ -34,7 +34,6 @@ def confirmar_exclusao_paciente(p_id, p_nome):
         try:
             s.query(AgendaSessao).filter(AgendaSessao.id_paciente == p_id).delete()
             s.query(ContratoHistorico).filter(ContratoHistorico.id_paciente == p_id).delete()
-            s.query(ExcecaoHorario).filter(ExcecaoHorario.id_paciente == p_id).delete()
             p = s.query(Paciente).get(p_id)
             if p:
                 s.delete(p)
@@ -64,7 +63,6 @@ def exportar_paciente_dialog(p_id, p_nome):
         
     contratos = s.query(ContratoHistorico).filter(ContratoHistorico.id_paciente == p_id).all()
     sessoes = s.query(AgendaSessao).filter(AgendaSessao.id_paciente == p_id).all()
-    excecoes = s.query(ExcecaoHorario).filter(ExcecaoHorario.id_paciente == p_id).all()
     
     def json_serial(obj):
         if isinstance(obj, (datetime, date)):
@@ -104,15 +102,6 @@ def exportar_paciente_dialog(p_id, p_nome):
                 "sessoes_mes_custom": c.sessoes_mes_custom,
                 "criado_em": c.criado_em.isoformat() if c.criado_em else None
             } for c in contratos
-        ],
-        "excecoes_horario": [
-            {
-                "tipo": e.tipo,
-                "semana_do_mes": e.semana_do_mes,
-                "data_especifica": e.data_especifica.isoformat() if e.data_especifica else None,
-                "dia_alvo": e.dia_alvo,
-                "horario_alvo": e.horario_alvo
-            } for e in excecoes
         ],
         "sessoes": [
             {
@@ -403,34 +392,36 @@ def tela_cadastro():
                                 st.warning("Cadastrar mesmo assim? Clique em "
                                            "**Cadastrar** novamente para confirmar.")
                             else:
-                                db().add(novo_temp)
-                                db().commit()
-                                st.session_state.pop("conf_rec", None)
-                                st.session_state.pop("conf_conflito", None)
-                                novo_p = db().query(Paciente).filter(
-                                    Paciente.nome == nome).order_by(
-                                    Paciente.criado_em.desc()).first()
-                                from app.services.contrato import abrir_periodo
-                                abrir_periodo(db(), novo_p,
-                                    novo_p.ativo_desde or datetime.now().date())
-                                from app.services.agenda_geracao import AgendaGeracaoService
-                                AgendaGeracaoService.gerar_sessoes_futuras(
-                                    db(), novo_p, novo_p.ativo_desde or datetime.now().date()
-                                )
-                                db().commit()
+                                try:
+                                    db().add(novo_temp)
+                                    db().flush()
+                                    from app.services.contrato import abrir_periodo
+                                    abrir_periodo(db(), novo_temp,
+                                        novo_temp.ativo_desde or datetime.now().date(), commit=False)
+                                    from app.services.agenda_geracao import AgendaGeracaoService
+                                    AgendaGeracaoService.gerar_sessoes_futuras(
+                                        db(), novo_temp, novo_temp.ativo_desde or datetime.now().date()
+                                    )
+                                    db().commit()
+                                    st.session_state.pop("conf_rec", None)
+                                    st.session_state.pop("conf_conflito", None)
+                                except Exception as e:
+                                    db().rollback()
+                                    st.error(f"Erro ao cadastrar paciente: {e}")
+                                    st.stop()
                                 hj = datetime.now().date()
-                                r = detectar_conflitos(db(), novo_p, hj.year, hj.month,
-                                                       id_excluir=novo_p.id_paciente)
+                                r = detectar_conflitos(db(), novo_temp, hj.year, hj.month,
+                                                       id_excluir=novo_temp.id_paciente)
                                 from app.services.ocupacao import sugerir_horarios
-                                sugs = sugerir_horarios(db(), novo_p, hj.year,
+                                sugs = sugerir_horarios(db(), novo_temp, hj.year,
                                     hj.month, FAIXAS_HORARIO,
-                                    id_excluir=novo_p.id_paciente)
+                                    id_excluir=novo_temp.id_paciente)
                                 st.session_state["ultimo_cad"] = {
                                     "nome": nome, "conflitos": r["conflitos"],
                                     "livres": len(r["datas_livres"]),
-                                    "freq": novo_p.frequencia.value,
-                                    "paridade": novo_p.paridade_quinzenal,
-                                    "dia": (novo_p.dias_semana or "").split(",")[0],
+                                    "freq": novo_temp.frequencia.value,
+                                    "paridade": novo_temp.paridade_quinzenal,
+                                    "dia": (novo_temp.dias_semana or "").split(",")[0],
                                     "sug_mesmo_dia": sugs["mesmo_dia"],
                                     "sug_outros_dias": sugs["outros_dias"]}
                                 st.session_state["form_seed"] = _kf + 1
@@ -558,22 +549,25 @@ def tela_cadastro():
                         if not ok_val:
                             st.error(f"Erro no Valor: {res_val}")
                         else:
-                            p.em_avaliacao = False
-                            p.frequencia = Frequencia(fq)
-                            p.dia_atendimento = DiaSemana(dia)
-                            p.dias_semana = dia
-                            p.horario_atendimento = f"{dia}={hr}"
-                            p.valor_sessao = Decimal(str(vl))
-                            p.ativo_desde = ad
-                            db().commit()
-                            from app.services.contrato import abrir_periodo
-                            abrir_periodo(db(), p, ad)
-                            from app.services.agenda_geracao import AgendaGeracaoService
-                            AgendaGeracaoService.gerar_sessoes_futuras(db(), p, ad)
-                            db().commit()
-                            del st.session_state[f"converter_{p.id_paciente}"]
-                            flash(f"{p.nome} agora é recorrente.", "success")
-                            st.rerun()
+                             try:
+                                p.em_avaliacao = False
+                                p.frequencia = Frequencia(fq)
+                                p.dia_atendimento = DiaSemana(dia)
+                                p.dias_semana = dia
+                                p.horario_atendimento = f"{dia}={hr}"
+                                p.valor_sessao = Decimal(str(vl))
+                                p.ativo_desde = ad
+                                from app.services.contrato import abrir_periodo
+                                abrir_periodo(db(), p, ad, commit=False)
+                                from app.services.agenda_geracao import AgendaGeracaoService
+                                AgendaGeracaoService.gerar_sessoes_futuras(db(), p, ad)
+                                db().commit()
+                                del st.session_state[f"converter_{p.id_paciente}"]
+                                flash(f"{p.nome} agora é recorrente.", "success")
+                                st.rerun()
+                            except Exception as e:
+                                db().rollback()
+                                st.error(f"Erro ao converter paciente: {e}")
 
     with st.expander("💤 Pacientes inativos (sem retorno)"):
         inativos = db().query(Paciente).filter(
@@ -587,14 +581,18 @@ def tela_cadastro():
             dd = p.data_desativacao.strftime("%d/%m/%Y") if p.data_desativacao else "?"
             c1.write(f"**{p.nome}** — {p.telefone} — inativo desde {dd}")
             if c2.button("Reativar", key=f"rea_{p.id_paciente}"):
-                p.status = StatusPaciente.ATIVO
-                p.data_desativacao = None
-                from app.services.agenda_geracao import AgendaGeracaoService
-                AgendaGeracaoService.gerar_sessoes_futuras(db(), p, datetime.now().date())
-                db().commit()
-                registrar(db(), st.session_state.username,
-                          "PACIENTE_REATIVADO", "")
-                st.rerun()
+                try:
+                    p.status = StatusPaciente.ATIVO
+                    p.data_desativacao = None
+                    from app.services.agenda_geracao import AgendaGeracaoService
+                    AgendaGeracaoService.gerar_sessoes_futuras(db(), p, datetime.now().date())
+                    db().commit()
+                    registrar(db(), st.session_state.username,
+                              "PACIENTE_REATIVADO", "")
+                    st.rerun()
+                except Exception as e:
+                    db().rollback()
+                    st.error(f"Erro ao reativar paciente: {e}")
             if c3.button("Excluir", key=f"del_{p.id_paciente}"):
                 confirmar_exclusao_paciente(p.id_paciente, p.nome)
             if c4.button("📥", key=f"expin_{p.id_paciente}", help="Exportar todos os dados do paciente (Portabilidade/LGPD)"):
@@ -624,25 +622,9 @@ def tela_cadastro():
             if "=" in hr_str:
                 hr_str = hr_str.split("=", 1)[1].strip()
             valor_br = f"R$ {float(p.valor_sessao):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            # Resumo das excecoes para a linha do paciente
-            excs_p = db().query(ExcecaoHorario).filter(
-                ExcecaoHorario.id_paciente == p.id_paciente).all()
-            exc_resumo = ""
-            if excs_p:
-                partes = []
-                for e in excs_p:
-                    if e.tipo == "recorrente":
-                        rs = {1:"1ª",2:"2ª",3:"3ª",4:"4ª",5:"Última"}.get(
-                            e.semana_do_mes, "?")
-                        partes.append(f"{rs} sem.→{e.dia_alvo} {e.horario_alvo}")
-                    else:
-                        partes.append(f"{e.data_especifica.strftime('%d/%m')}→"
-                                      f"{e.dia_alvo} {e.horario_alvo}")
-                exc_resumo = f"  \n📅 **Exceções:** {' | '.join(partes)}"
             c1.markdown(f"**{p.nome}** &nbsp;|&nbsp; 📱 {p.telefone} &nbsp;|&nbsp; "
                 f"Email: `{p.email or '—'}` &nbsp;|&nbsp; 🎂 {nasc}  \n"
-                f"{rec} — {hr_str} — {valor_br}/sessão — ativo desde {ad}"
-                + exc_resumo)
+                f"{rec} — {hr_str} — {valor_br}/sessão — ativo desde {ad}")
             if p.email and c2.button("✉️", key=f"cp_{p.id_paciente}",
                                      help="Copiar email"):
                 st.session_state[f"showmail_{p.id_paciente}"] = True
@@ -733,33 +715,38 @@ def tela_cadastro():
                                 semana_do_mes=p.semana_do_mes,
                                 paridade_quinzenal=p.paridade_quinzenal,
                             )
-                            p.nome = nv_nome
-                            p.telefone = res_tel
-                            p.email = res_email or None
-                            p.data_nascimento = nv_nasc
-                            p.dia_atendimento = DiaSemana(nv_dia)
-                            p.frequencia = Frequencia(nv_freq)
-                            p.semana_do_mes = nv_semana
-                            p.paridade_quinzenal = nv_paridade
-                            p.dias_semana = nv_dia
-                            p.horario_atendimento = f"{nv_dia}={nv_hr}"
-                            p.valor_sessao = Decimal(str(nv_vl))
-                            p.ativo_desde = nv_ad
-                            db().commit()
-                            # Se algum campo de contrato mudou, abre novo periodo
-                            mudou = (
-                                antigo["frequencia"] != p.frequencia or
-                                Decimal(str(antigo["valor_sessao"])) != p.valor_sessao or
-                                (antigo["dias_semana"] or "") != (p.dias_semana or "") or
-                                antigo["semana_do_mes"] != p.semana_do_mes or
-                                antigo["paridade_quinzenal"] != p.paridade_quinzenal
-                            )
-                            if mudou:
-                                from app.services.contrato import abrir_periodo
-                                abrir_periodo(db(), p, datetime.now().date())
-                                from app.services.agenda_geracao import AgendaGeracaoService
-                                AgendaGeracaoService.processar_mudanca_contrato(db(), p, datetime.now().date())
+                            try:
+                                p.nome = nv_nome
+                                p.telefone = res_tel
+                                p.email = res_email or None
+                                p.data_nascimento = nv_nasc
+                                p.dia_atendimento = DiaSemana(nv_dia)
+                                p.frequencia = Frequencia(nv_freq)
+                                p.semana_do_mes = nv_semana
+                                p.paridade_quinzenal = nv_paridade
+                                p.dias_semana = nv_dia
+                                p.horario_atendimento = f"{nv_dia}={nv_hr}"
+                                p.valor_sessao = Decimal(str(nv_vl))
+                                p.ativo_desde = nv_ad
+                                
+                                # Se algum campo de contrato mudou, abre novo periodo
+                                mudou = (
+                                    antigo["frequencia"] != p.frequencia or
+                                    Decimal(str(antigo["valor_sessao"])) != p.valor_sessao or
+                                    (antigo["dias_semana"] or "") != (p.dias_semana or "") or
+                                    antigo["semana_do_mes"] != p.semana_do_mes or
+                                    antigo["paridade_quinzenal"] != p.paridade_quinzenal
+                                )
+                                if mudou:
+                                    from app.services.contrato import abrir_periodo
+                                    abrir_periodo(db(), p, datetime.now().date(), commit=False)
+                                    from app.services.agenda_geracao import AgendaGeracaoService
+                                    AgendaGeracaoService.processar_mudanca_contrato(db(), p, datetime.now().date())
                                 db().commit()
+                            except Exception as e:
+                                db().rollback()
+                                st.error(f"Erro ao salvar alterações: {e}")
+                                st.stop()
                             del st.session_state[f"editar_{p.id_paciente}"]
                             registrar(db(), st.session_state.username,
                                       "PACIENTE_EDITADO", "alteracao de cadastro")
@@ -778,53 +765,126 @@ def tela_cadastro():
                     if cb2.form_submit_button("Cancelar"):
                         del st.session_state[f"editar_{p.id_paciente}"]
                         st.rerun()
-            # ===== EXCEÇÕES DE HORÁRIO =====
-            excs = db().query(ExcecaoHorario).filter(
-                ExcecaoHorario.id_paciente == p.id_paciente).all()
-            with st.expander(f"📅 Exceções de horário ({len(excs)})"):
-                for ex in excs:
-                    cx1, cx2 = st.columns([5, 1])
-                    if ex.tipo == "recorrente":
-                        rot_sem = {1:"1ª",2:"2ª",3:"3ª",4:"4ª",5:"Última"}.get(
-                            ex.semana_do_mes, "?")
-                        cx1.write(f"🔁 **Recorrente:** na {rot_sem} semana → "
-                                  f"{ex.dia_alvo} {ex.horario_alvo}")
+            # ===== ALTERAÇÃO EM LOTE DE SESSÕES FUTURAS =====
+            with st.expander("📅 Alteração de Sessões Futuras em Lote"):
+                st.caption("Esta ferramenta permite reagendar sessões futuras pendentes em lote, alterando diretamente as datas e horários na agenda.")
+                
+                tipo_alt = st.radio("Tipo de alteração", ["Pontual (reagendar uma data específica)", "Recorrente (reagendar toda Nª semana do mês)"],
+                    key=f"talt_{p.id_paciente}", horizontal=True)
+                
+                with st.form(f"falt_{p.id_paciente}"):
+                    if tipo_alt.startswith("Pontual"):
+                        data_orig = st.date_input("Data da sessão original a ser movida",
+                            value=datetime.now().date(), format="DD/MM/YYYY", key=f"dorig_{p.id_paciente}")
+                        data_nova = st.date_input("Nova data para o atendimento",
+                            value=datetime.now().date(), format="DD/MM/YYYY", key=f"dnova_{p.id_paciente}")
+                        hr_nova = st.selectbox("Novo horário", FAIXAS_HORARIO, key=f"hnova_{p.id_paciente}")
+                        sm = None
+                        dia_a = None
                     else:
-                        cx1.write(f"📌 **Pontual:** "
-                                  f"{ex.data_especifica.strftime('%d/%m/%Y')} → "
-                                  f"{ex.dia_alvo} {ex.horario_alvo}")
-                    if cx2.button("Remover", key=f"rmex_{ex.id_excecao}"):
-                        db().delete(ex); db().commit(); st.rerun()
-                # Form para nova exceção
-                tipo_e = st.radio("Tipo", ["Recorrente (toda Nª semana)",
-                    "Pontual (data específica)"],
-                    key=f"tex_{p.id_paciente}", horizontal=True)
-                with st.form(f"fex_{p.id_paciente}"):
-                    if tipo_e.startswith("Recorrente"):
                         sm = st.selectbox("Em qual semana do mês?",
                             [1,2,3,4,5],
-                            format_func=lambda n: {1:"1ª",2:"2ª",3:"3ª",
-                                4:"4ª",5:"Última"}[n],
+                            format_func=lambda n: {1:"1ª",2:"2ª",3:"3ª",4:"4ª",5:"Última"}[n],
                             key=f"sm_{p.id_paciente}")
-                        de = None
-                    else:
-                        de = st.date_input("Data específica",
-                            format="DD/MM/YYYY", key=f"de_{p.id_paciente}")
-                        sm = None
-                    dia_a = st.selectbox("Atender em qual dia?",
-                        [e.value for e in DiaSemana],
-                        key=f"da_{p.id_paciente}")
-                    hr_a = st.selectbox("Horário", FAIXAS_HORARIO,
-                        key=f"ha_{p.id_paciente}")
-                    if st.form_submit_button("Adicionar exceção"):
-                        db().add(ExcecaoHorario(
-                            id_paciente=p.id_paciente,
-                            tipo="recorrente" if tipo_e.startswith("Recorrente") else "pontual",
-                            semana_do_mes=sm, data_especifica=de,
-                            dia_alvo=dia_a, horario_alvo=hr_a))
-                        db().commit()
-                        flash("Exceção adicionada.", "success")
-                        st.rerun()
+                        dia_a = st.selectbox("Atender em qual dia?",
+                            [e.value for e in DiaSemana],
+                            key=f"da_{p.id_paciente}")
+                        hr_nova = st.selectbox("Horário", FAIXAS_HORARIO, key=f"ha_{p.id_paciente}")
+                        data_orig = None
+                        data_nova = None
+
+                    if st.form_submit_button("Aplicar alteração em lote"):
+                        from app.db.models import StatusPresenca
+                        import calendar
+                        from datetime import timedelta
+                        
+                        if tipo_alt.startswith("Pontual"):
+                            # 1. Busca a sessão AGENDADA na data original
+                            inicio_dia = datetime.combine(data_orig, time.min)
+                            fim_dia = datetime.combine(data_orig, time.max)
+                            
+                            sessao = db().query(AgendaSessao).filter(
+                                AgendaSessao.id_paciente == p.id_paciente,
+                                AgendaSessao.data_hora_inicio >= inicio_dia,
+                                AgendaSessao.data_hora_inicio <= fim_dia,
+                                AgendaSessao.status_presenca == StatusPresenca.AGENDADA
+                            ).first()
+                            
+                            if sessao:
+                                try:
+                                    hi, fim_h = hr_nova.split(" - ")
+                                    h, m = map(int, hi.split(":"))
+                                    hf, mf = map(int, fim_h.split(":"))
+                                    
+                                    sessao.data_hora_inicio = datetime.combine(data_nova, time(h, m))
+                                    sessao.data_hora_fim = datetime.combine(data_nova, time(hf, mf))
+                                    sessao.recorrente = False  # Deixa de ser recorrente padrão
+                                    db().commit()
+                                    invalidar_cache()
+                                    flash(f"Sessão de {data_orig.strftime('%d/%m/%Y')} movida para {data_nova.strftime('%d/%m/%Y')} {hr_nova}.", "success")
+                                    st.rerun()
+                                except Exception as e:
+                                    db().rollback()
+                                    st.error(f"Erro ao atualizar sessão: {e}")
+                            else:
+                                st.error("Nenhuma sessão agendada encontrada para este paciente na data original.")
+                        else:
+                            # 2. Recorrente: altera todas as sessões futuras da N-ésima semana do mês
+                            hoje_dt = datetime.now()
+                            sessoes_futuras = db().query(AgendaSessao).filter(
+                                AgendaSessao.id_paciente == p.id_paciente,
+                                AgendaSessao.data_hora_inicio >= hoje_dt,
+                                AgendaSessao.status_presenca == StatusPresenca.AGENDADA,
+                                AgendaSessao.recorrente == True
+                            ).all()
+                            
+                            cont_alteradas = 0
+                            dia_orig_nome = (p.dias_semana or "").split(",")[0]
+                            if not dia_orig_nome:
+                                st.error("Este paciente não possui dia de atendimento padrão configurado no contrato.")
+                            else:
+                                for s in sessoes_futuras:
+                                    dt_sess = s.data_hora_inicio.date()
+                                    weekday_idx = dt_sess.weekday()
+                                    ocorr = sum(1 for dd in range(1, dt_sess.day + 1)
+                                                if date(dt_sess.year, dt_sess.month, dd).weekday() == weekday_idx)
+                                    
+                                    bater_semana = False
+                                    if sm == 5: # Última
+                                        total_ocorr = sum(1 for dd in range(1, calendar.monthrange(dt_sess.year, dt_sess.month)[1] + 1)
+                                                          if date(dt_sess.year, dt_sess.month, dd).weekday() == weekday_idx)
+                                        if ocorr == total_ocorr:
+                                            bater_semana = True
+                                    else:
+                                        if ocorr == sm:
+                                            bater_semana = True
+                                            
+                                    if bater_semana:
+                                        # Calcula nova data: mesma semana, dia_alvo
+                                        dia_alvo_idx = ["Segunda-feira","Terça-feira","Quarta-feira",
+                                            "Quinta-feira","Sexta-feira","Sábado"].index(dia_a)
+                                        delta = dia_alvo_idx - dt_sess.weekday()
+                                        nova_data = dt_sess + timedelta(days=delta)
+                                        
+                                        hi, fim_h = hr_nova.split(" - ")
+                                        h, m = map(int, hi.split(":"))
+                                        hf, mf = map(int, fim_h.split(":"))
+                                        
+                                        s.data_hora_inicio = datetime.combine(nova_data, time(h, m))
+                                        s.data_hora_fim = datetime.combine(nova_data, time(hf, mf))
+                                        cont_alteradas += 1
+                                
+                                if cont_alteradas > 0:
+                                    try:
+                                        db().commit()
+                                        invalidar_cache()
+                                        flash(f"Sucesso: {cont_alteradas} sessões recorrentes futuras da {sm}ª semana foram alteradas em lote.", "success")
+                                        st.rerun()
+                                    except Exception as e:
+                                        db().rollback()
+                                        st.error(f"Erro ao salvar alterações: {e}")
+                                else:
+                                    st.warning("Nenhuma sessão futura recorrente correspondente ao padrão foi encontrada para alteração.")
         dados_pac = [{"Nome": p.nome, "Tel": p.telefone,
             "Email": p.email or "", "Nasc": p.data_nascimento.strftime("%d/%m/%Y") if p.data_nascimento else "",
             "Freq": p.frequencia.value, "Dias": p.dias_semana or "",

@@ -103,7 +103,8 @@ def tela_pagamentos():
         p = pacientes_dict.get(s.id_paciente)
         nome = p.nome if p else "?"
         quando = s.data_hora_inicio.strftime("%d/%m/%Y %H:%M")
-        with st.expander(f"{nome} — {quando} — {s.status_presenca.value} / {s.status_pagamento.value}"):
+        pago_str = f" | 📅 Pago em {s.data_pagamento.strftime('%d/%m/%Y')}" if s.status_pagamento == StatusPagamento.PAGO and s.data_pagamento else ""
+        with st.expander(f"{nome} — {quando} — {s.status_presenca.value} / {s.status_pagamento.value}{pago_str}"):
             c1, c2 = st.columns(2)
             pres = c1.selectbox("Situação", [e.value for e in StatusPresenca],
                 index=[e.value for e in StatusPresenca].index(
@@ -114,20 +115,35 @@ def tela_pagamentos():
                 index=[e.value for e in StatusPagamento].index(
                     s.status_pagamento.value),
                 key=f"pag_{s.id_sessao}")
+            
+            if s.data_pagamento:
+                st.info(f"📅 **Pagamento registrado em:** {s.data_pagamento.strftime('%d/%m/%Y')}")
+                
             if st.button("Salvar", key=f"save_{s.id_sessao}"):
                 novo_pres = StatusPresenca(pres)
                 s.status_presenca = novo_pres
+                novo_pag = StatusPagamento(pag)
+                
                 # Regra automatica de cobranca:
                 if novo_pres in (StatusPresenca.CANCELOU_COM_ANTECEDENCIA,
                                  StatusPresenca.IMPREVISTO):
                     s.status_pagamento = StatusPagamento.ISENTO
+                    s.data_pagamento = None
                 elif novo_pres == StatusPresenca.CANCELOU_EM_CIMA:
-                    if StatusPagamento(pag) != StatusPagamento.PAGO:
+                    if novo_pag != StatusPagamento.PAGO:
                         s.status_pagamento = StatusPagamento.PENDENTE
+                        s.data_pagamento = None
                     else:
                         s.status_pagamento = StatusPagamento.PAGO
+                        if not s.data_pagamento:
+                            s.data_pagamento = datetime.now().date()
                 else:
-                    s.status_pagamento = StatusPagamento(pag)
+                    s.status_pagamento = novo_pag
+                    if novo_pag == StatusPagamento.PAGO:
+                        if not s.data_pagamento:
+                            s.data_pagamento = datetime.now().date()
+                    else:
+                        s.data_pagamento = None
                 db().commit()
                 flash("Atualizado.", "success")
                 st.rerun()
@@ -163,15 +179,19 @@ def tela_pagamentos():
         )
         
         c1, c2 = st.columns([2, 1])
-        if c1.button("Confirmar Pagamento das Selecionadas", type="primary"):
+        confirmado = c1.checkbox("Confirmo que os valores de todas as sessões selecionadas foram recebidos.", key="conf_lote_checkbox")
+        
+        if c1.button("Confirmar Pagamento das Selecionadas", type="primary", disabled=not confirmado):
             selecionadas = df_editado[df_editado["Pagar em Lote"] == True]
             if not selecionadas.empty:
                 count_pagos = 0
+                hoje = datetime.now().date()
                 for idx, row in selecionadas.iterrows():
                     sessao_id = int(row["id_sessao"])
                     sessao = db().query(AgendaSessao).get(sessao_id)
                     if sessao:
                         sessao.status_pagamento = StatusPagamento.PAGO
+                        sessao.data_pagamento = hoje
                         count_pagos += 1
                 db().commit()
                 registrar(db(), st.session_state.username, "PAGAMENTO_LOTE", f"quantidade={count_pagos}")

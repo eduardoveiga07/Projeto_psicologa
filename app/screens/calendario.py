@@ -13,6 +13,9 @@ from app.services.validacao_negocio import validar_datas_bloqueio
 
 
 def tela_calendario():
+    if st.session_state.get("perfil") not in ["Dona", "Secretaria", "Programador"]:
+        st.error("Acesso negado. Você não tem permissão para gerenciar o calendário.")
+        st.stop()
     mostrar_flash()
     ui_header("Calendário de Bloqueios e Folgas", icon="📆")
     ABAS = ["Visão geral", "Feriados oficiais",

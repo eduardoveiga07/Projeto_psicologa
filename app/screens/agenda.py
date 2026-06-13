@@ -12,6 +12,9 @@ from app.services.ocupacao import sessoes_perdidas_no_mes_query
 
 
 def tela_agenda():
+    if st.session_state.get("perfil") not in ["Dona", "Secretaria", "Programador"]:
+        st.error("Acesso negado. Você não tem permissão para gerenciar a agenda.")
+        st.stop()
     mostrar_flash()
     ui_header("Agenda de Sessões", icon="📅")
     st.caption("As sessões aparecem automaticamente conforme o cadastro de "

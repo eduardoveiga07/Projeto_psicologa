@@ -97,9 +97,9 @@ class AgendaSessao(Base):
     data_hora_inicio = Column(DateTime, nullable=False, index=True)
     data_hora_fim = Column(DateTime, nullable=False)
     status_presenca = Column(Enum(StatusPresenca), nullable=False,
-                             default=StatusPresenca.AGENDADA)
+                             default=StatusPresenca.AGENDADA, index=True)
     status_pagamento = Column(Enum(StatusPagamento), nullable=False,
-                              default=StatusPagamento.PENDENTE)
+                              default=StatusPagamento.PENDENTE, index=True)
     confirmacao_enviada = Column(Boolean, default=False)
     # Quando uma sessao foi remarcada por causa de feriado/bloqueio,
     # registramos aqui a data original que foi "pulada" e o motivo.
@@ -110,9 +110,14 @@ class AgendaSessao(Base):
     valor_sessao = Column(Numeric(10, 2), nullable=True)
     recorrente = Column(Boolean, nullable=False, default=True)
     
+    # Data do pagamento real
+    data_pagamento = Column(Date, nullable=True)
+    
     paciente = relationship("Paciente", back_populates="sessoes")
     __table_args__ = (
         CheckConstraint("data_hora_fim > data_hora_inicio", name="ck_sessoes_datas"),
+        CheckConstraint("valor_sessao >= 0", name="ck_valor_sessao_sess_pos"),
+        UniqueConstraint("id_paciente", "data_hora_inicio", name="uq_paciente_horario"),
     )
 
 
@@ -138,23 +143,8 @@ class ContratoHistorico(Base):
     criado_em = Column(DateTime, server_default=func.now())
     __table_args__ = (
         CheckConstraint("vigente_ate >= vigente_de OR vigente_ate IS NULL", name="ck_contratos_datas"),
+        CheckConstraint("valor_sessao >= 0", name="ck_valor_sessao_hist_pos"),
     )
-
-
-class ExcecaoHorario(Base):
-    """Exceção de horário de um paciente recorrente.
-    tipo='recorrente' usa semana_do_mes (1-5/Última) + dia_alvo + horario_alvo.
-    tipo='pontual' usa data_especifica + dia_alvo + horario_alvo."""
-    __tablename__ = "excecoes_horario"
-    id_excecao = Column(Integer, primary_key=True, autoincrement=True)
-    id_paciente = Column(UUID(as_uuid=True),
-        ForeignKey("pacientes.id_paciente", ondelete="CASCADE"),
-        nullable=False)
-    tipo = Column(String(15), nullable=False)  # 'recorrente' ou 'pontual'
-    semana_do_mes = Column(Integer, nullable=True)  # 1..5 (5=Última)
-    data_especifica = Column(Date, nullable=True)
-    dia_alvo = Column(String(20), nullable=False)  # ex: 'Terça-feira'
-    horario_alvo = Column(String(20), nullable=False)  # ex: '07:00 - 08:00'
 
 
 class Despesa(Base):

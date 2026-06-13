@@ -73,5 +73,49 @@ class DbConstraintsTest(unittest.TestCase):
         self.session.commit()
         self.assertIsNotNone(u.id_usuario)
 
+    def test_sessao_valor_negativo_falha(self):
+        # Sessão com valor negativo deve falhar
+        s = AgendaSessao(
+            id_paciente=uuid.uuid4(),
+            data_hora_inicio=datetime(2026, 6, 12, 10, 0),
+            data_hora_fim=datetime(2026, 6, 12, 11, 0),
+            valor_sessao=Decimal("-10.00")
+        )
+        self.session.add(s)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_contrato_valor_negativo_falha(self):
+        # Contrato histórico com valor negativo deve falhar
+        c = ContratoHistorico(
+            id_paciente=uuid.uuid4(),
+            vigente_de=date(2026, 6, 12),
+            frequencia=Frequencia.SEMANAL,
+            valor_sessao=Decimal("-50.00")
+        )
+        self.session.add(c)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_duplicidade_sessao_paciente_falha(self):
+        # Duas sessões para o mesmo paciente no mesmo horário devem falhar por restrição de unicidade
+        paciente_id = uuid.uuid4()
+        s1 = AgendaSessao(
+            id_paciente=paciente_id,
+            data_hora_inicio=datetime(2026, 6, 12, 10, 0),
+            data_hora_fim=datetime(2026, 6, 12, 11, 0),
+            valor_sessao=Decimal("150.00")
+        )
+        s2 = AgendaSessao(
+            id_paciente=paciente_id,
+            data_hora_inicio=datetime(2026, 6, 12, 10, 0),  # Mesmo horário
+            data_hora_fim=datetime(2026, 6, 12, 11, 0),
+            valor_sessao=Decimal("150.00")
+        )
+        self.session.add(s1)
+        self.session.add(s2)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
 if __name__ == "__main__":
     unittest.main()

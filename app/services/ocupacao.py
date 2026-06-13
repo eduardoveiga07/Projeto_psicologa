@@ -46,56 +46,7 @@ def _faixa_do_paciente_no_dia(p: Paciente, dia_nome: str) -> str:
     return ""
 
 
-def _aplicar_excecoes(db, p, datas_padrao: list, ano: int, mes: int, excs=None) -> list:
-    """Aplica exceções (recorrentes/pontuais) sobre as datas padrão."""
-    if excs is None:
-        if db is None:
-            return datas_padrao
-        from app.db.models import ExcecaoHorario
-        excs = db.query(ExcecaoHorario).filter(
-            ExcecaoHorario.id_paciente == p.id_paciente).all()
-    if not excs:
-        return datas_padrao
-    # Mapa data -> horario_alvo (substituições)
-    substituicoes = {}
-    remocoes = set()
-    adicoes = []
-    for e in excs:
-        if e.tipo == "pontual" and e.data_especifica:
-            if e.data_especifica.year == ano and e.data_especifica.month == mes:
-                # Remove a data padrão original e adiciona a nova
-                # (a data padrão substituída é qualquer uma desse mês com dia da semana original)
-                adicoes.append((e.data_especifica, e.horario_alvo))
-                # Remove a data padrão mais próxima do mesmo dia da semana
-                # Simplificação: marca data_especifica como adição e
-                # remove a 1a data padrao do mes
-                if datas_padrao:
-                    remocoes.add(datas_padrao[0][0])
-        elif e.tipo == "recorrente" and e.semana_do_mes:
-            # Calcula a data que cai na N-ésima semana do dia padrão original
-            dia_orig = p.dias_semana.split(",")[0] if p.dias_semana else None
-            if not dia_orig:
-                continue
-            ocs = _ocorrencias(ano, mes, dia_orig)
-            n = e.semana_do_mes
-            if n >= 5 and ocs:
-                dt_orig = ocs[-1]
-            elif n <= len(ocs):
-                dt_orig = ocs[n - 1]
-            else:
-                continue
-            # Calcula a nova data: mesma semana, dia_alvo
-            dia_alvo_idx = ["Segunda-feira","Terça-feira","Quarta-feira",
-                "Quinta-feira","Sexta-feira","Sábado"].index(e.dia_alvo)
-            delta = dia_alvo_idx - dt_orig.weekday()
-            from datetime import timedelta
-            nova_data = dt_orig + timedelta(days=delta)
-            if nova_data.month == mes:
-                remocoes.add(dt_orig)
-                adicoes.append((nova_data, e.horario_alvo))
-    resultado = [(d, h) for (d, h) in datas_padrao if d not in remocoes]
-    resultado.extend(adicoes)
-    return sorted(resultado)
+# _aplicar_excecoes removida pois excecoes agora sao gravadas diretamente no banco de dados.
 
 
 def sessoes_perdidas_no_mes(p, ano: int, mes: int,
@@ -189,25 +140,52 @@ def sessoes_perdidas_no_mes(p, ano: int, mes: int,
 def datas_paciente_no_mes(p, ano: int, mes: int,
                           db=None, indisp_set=None, historico=None, excs=None) -> list:
     """Retorna [(data, horario)] em que p atende neste mes.
-    Pro-rateado: para cada data candidata, consulta o snapshot do contrato
-    vigente naquela data. Sem db, cai para os campos antigos (compat)."""
-    from app.db.models import StatusPaciente, Frequencia, DiaSemana
-    import calendar
+    Lê diretamente da tabela agenda_sessoes se db for passado e o paciente for cadastrado.
+    Caso contrário, calcula em memória usando o contrato (fallback e simulação)."""
+    from app.db.models import StatusPaciente
     from datetime import date
     if p.em_avaliacao or p.status != StatusPaciente.ATIVO:
         return []
     if p.ativo_desde and p.ativo_desde > date(ano, mes, 28):
         return []
 
+    # Se db estiver disponível e o paciente tiver ID (já persistido no banco)
+    if db is not None and p.id_paciente is not None:
+        from app.db.models import AgendaSessao, StatusPresenca
+        from datetime import datetime, time
+        import calendar
+        
+        inicio_mes = datetime.combine(date(ano, mes, 1), time.min)
+        fim_mes = datetime.combine(date(ano, mes, calendar.monthrange(ano, mes)[1]), time.max)
+        
+        sessoes = db.query(AgendaSessao).filter(
+            AgendaSessao.id_paciente == p.id_paciente,
+            AgendaSessao.data_hora_inicio >= inicio_mes,
+            AgendaSessao.data_hora_inicio <= fim_mes,
+            AgendaSessao.status_presenca != StatusPresenca.CANCELADA,
+            AgendaSessao.status_presenca != StatusPresenca.CANCELOU_COM_ANTECEDENCIA,
+            AgendaSessao.status_presenca != StatusPresenca.IMPREVISTO
+        ).order_by(AgendaSessao.data_hora_inicio).all()
+        
+        out = []
+        for s in sessoes:
+            dt = s.data_hora_inicio.date()
+            hr = f"{s.data_hora_inicio.strftime('%H:%M')} - {s.data_hora_fim.strftime('%H:%M')}"
+            out.append((dt, hr))
+        return out
+
+    # Fallback/Simulação em memória (sem db ou paciente novo)
     if db is None:
         return _datas_legado(p, ano, mes)
 
+    # Caso tenhamos db mas o paciente seja novo (p.id_paciente é None), simula a geração:
     from app.services.contrato import snapshot_vigente_em_memoria
     from app.services.feriados import feriados_brasil
-    from app.db.models import Indisponibilidade, ContratoHistorico
+    from app.db.models import Indisponibilidade, ContratoHistorico, Frequencia, DiaSemana
+    import calendar
+    
     fer = feriados_brasil(ano)
     
-    # Indisponibilidades do mes
     if indisp_set is None:
         indisp_set = set()
         indisps = db.query(Indisponibilidade).filter(
@@ -217,7 +195,6 @@ def datas_paciente_no_mes(p, ano: int, mes: int,
         for r in indisps:
             indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
 
-    # Carrega todo o historico de contratos do paciente de uma vez
     if historico is None:
         historico = db.query(ContratoHistorico).filter(
             ContratoHistorico.id_paciente == p.id_paciente
@@ -231,7 +208,7 @@ def datas_paciente_no_mes(p, ano: int, mes: int,
             continue
         snap = snapshot_vigente_em_memoria(historico, dt)
         if not snap:
-            continue
+            snap = p
         dias_csv = snap.dias_semana or ""
         if not dias_csv:
             continue
@@ -263,7 +240,6 @@ def datas_paciente_no_mes(p, ano: int, mes: int,
                 if ocorr != alvo:
                     continue
         hr = _faixa_do_paciente_no_dia(p, nome_dia_bate)
-        # Pula feriado e indisponibilidade
         if dt in fer:
             continue
         if (dt, "dia_todo") in indisp_set:
@@ -272,7 +248,6 @@ def datas_paciente_no_mes(p, ano: int, mes: int,
             continue
         out.append((dt, hr))
 
-    out = _aplicar_excecoes(db, p, out, ano, mes, excs=excs)
     return out
 
 

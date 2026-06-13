@@ -11,6 +11,9 @@ from app.auth.usuario_validacao import (
 
 
 def tela_usuarios():
+    if st.session_state.get("perfil") not in ["Dona", "Programador"]:
+        st.error("Acesso negado. Apenas administradores podem gerenciar usuários.")
+        st.stop()
     mostrar_flash()
     ui_header("Gerenciamento de Acessos", icon="👥")
     st.subheader("Criar novo usuário")

@@ -8,6 +8,9 @@ from app.services.pdf_export import gerar_pdf
 
 
 def tela_auditoria():
+    if st.session_state.get("perfil") not in ["Dona", "Programador"]:
+        st.error("Acesso negado. Permissão insuficiente para ver logs de auditoria.")
+        st.stop()
     ui_header("Painel de Auditoria e Logs", icon="🛡️")
     st.caption("Acompanhe o histórico de todas as operações críticas e eventos de segurança realizados na plataforma.")
 
