@@ -616,7 +616,7 @@ def tela_cadastro():
                         if not ok_val:
                             st.error(f"Erro no Valor: {res_val}")
                         else:
-                             try:
+                            try:
                                 p.em_avaliacao = False
                                 p.frequencia = Frequencia(fq)
                                 p.dia_atendimento = DiaSemana(dia)
