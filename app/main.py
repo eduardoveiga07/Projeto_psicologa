@@ -85,42 +85,50 @@ _executar_retencao_lgpd()
 
 # ---------- ROUTER ----------
 
+try:
+    if "user" not in st.session_state:
+        tela_login()
+    else:
+        # Timeout de sessao: 15 min de inatividade (ambiente clinico).
+        agora = datetime.now()
+        ultima = st.session_state.get("last_active", agora)
+        if (agora - ultima).total_seconds() > 15 * 60:
+            registrar(db(), st.session_state.get("username", "?"),
+                      "SESSAO_EXPIRADA", "timeout 15min inatividade")
+            st.session_state.clear()
+            st.warning("Sessão expirada por inatividade. Faça login novamente.")
+            st.stop()
+        st.session_state.last_active = agora
 
-if "user" not in st.session_state:
-    tela_login()
-else:
-    # Timeout de sessao: 15 min de inatividade (ambiente clinico).
-    agora = datetime.now()
-    ultima = st.session_state.get("last_active", agora)
-    if (agora - ultima).total_seconds() > 15 * 60:
-        registrar(db(), st.session_state.get("username", "?"),
-                  "SESSAO_EXPIRADA", "timeout 15min inatividade")
-        st.session_state.clear()
-        st.warning("Sessão expirada por inatividade. Faça login novamente.")
-        st.stop()
-    st.session_state.last_active = agora
+        st.sidebar.write(f"Logado: {st.session_state.user}")
+        st.sidebar.caption(f"Perfil: {st.session_state.perfil}")
+        if st.sidebar.button("Sair"):
+            registrar(db(), st.session_state.get("username", "?"),
+                      "LOGOUT", "logout manual")
+            st.session_state.clear()
+            st.rerun()
 
-    st.sidebar.write(f"Logado: {st.session_state.user}")
-    st.sidebar.caption(f"Perfil: {st.session_state.perfil}")
-    if st.sidebar.button("Sair"):
-        registrar(db(), st.session_state.get("username", "?"),
-                  "LOGOUT", "logout manual")
-        st.session_state.clear()
-        st.rerun()
+        # Permissoes por perfil:
+        perfil = st.session_state.perfil
+        TODAS = {"Minha conta": tela_minha_conta,
+                 "Cadastro": tela_cadastro, "Agenda": tela_agenda,
+                 "Calendário": tela_calendario,
+                 "Pagamentos": tela_pagamentos, "Financeiro": tela_financeiro,
+                 "Usuários": tela_usuarios,
+                 "Auditoria": tela_auditoria}
+        permitidas = obter_telas_permitidas(perfil)
 
-    # Permissoes por perfil:
-    perfil = st.session_state.perfil
-    TODAS = {"Minha conta": tela_minha_conta,
-             "Cadastro": tela_cadastro, "Agenda": tela_agenda,
-             "Calendário": tela_calendario,
-             "Pagamentos": tela_pagamentos, "Financeiro": tela_financeiro,
-             "Usuários": tela_usuarios,
-             "Auditoria": tela_auditoria}
-    permitidas = obter_telas_permitidas(perfil)
-
-    aba = st.sidebar.radio("Menu", permitidas)
-    
-    st.sidebar.divider()
-    st.sidebar.caption(f"Versão: v{__version__}")
-    
-    TODAS[aba]()
+        aba = st.sidebar.radio("Menu", permitidas)
+        
+        st.sidebar.divider()
+        st.sidebar.caption(f"Versão: v{__version__}")
+        
+        TODAS[aba]()
+finally:
+    # Garante liberação de conexões do banco a cada render do Streamlit
+    if "db" in st.session_state:
+        try:
+            st.session_state.db.close()
+        except Exception:
+            pass
+        del st.session_state.db

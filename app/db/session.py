@@ -1,6 +1,7 @@
 """Conexao com PostgreSQL. URL via variavel de ambiente DATABASE_URL ou st.secrets."""
 import os
 from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import sessionmaker
 from app.db.models import Base
 from app.services.logger import get_logger
@@ -22,7 +23,7 @@ def _get_database_url() -> str:
         "postgresql+psycopg2://psico:psico@localhost:5432/consultorio")
 
 DATABASE_URL = _get_database_url()
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, poolclass=NullPool)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
