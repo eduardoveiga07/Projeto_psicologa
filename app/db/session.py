@@ -58,11 +58,23 @@ def _migrar_colunas():
 
 
 def criar_tabelas():
-    """Cria tabelas e adiciona colunas faltantes. Espera o Postgres subir."""
+    """Cria tabelas e adiciona colunas faltantes. Executa migrações do Alembic."""
     import time
+    
+    # Executa migrações do Alembic de forma automática no boot
+    try:
+        logger.info("Executando migrações do Alembic (alembic upgrade head)...")
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Migrações do Alembic aplicadas com sucesso.")
+    except Exception as e:
+        logger.error(f"Erro ao rodar migrações do Alembic programaticamente: {e}. Continuando boot...", exc_info=True)
+
     ambiente = os.getenv("AMBIENTE", "desenvolvimento").lower()
     if ambiente == "producao":
-        logger.info("Ambiente de PRODUCAO detectado. Inicializacao automatica SQLAlchemy desativada (depende do Alembic).")
+        logger.info("Ambiente de PRODUCAO detectado. Inicializacao automatica SQLAlchemy bypassada (Alembic assumiu).")
         return
         
     logger.info("Iniciando a verificacao/criacao das tabelas do banco de dados...")
