@@ -116,9 +116,14 @@ def tela_agenda():
                             index=idx_h, key=f"rmk_h_{pk}")
                         cs1, cs2 = st.columns(2)
                         if cs1.form_submit_button("Confirmar"):
+                            from app.services.financeiro import is_mes_fechado
                             p_obj = pacs_ativos.get(nome)
                             if not p_obj:
                                 st.error("Paciente não encontrado.")
+                            elif is_mes_fechado(db(), dt):
+                                st.error(f"Erro: O período original ({dt.strftime('%m/%Y')}) está fechado para edições.")
+                            elif is_mes_fechado(db(), nd):
+                                st.error(f"Erro: O novo período ({nd.strftime('%m/%Y')}) está fechado para edições.")
                             else:
                                 hi, _ = nh.split(" - ")
                                 h_, m_ = map(int, hi.split(":"))
@@ -188,27 +193,31 @@ def tela_agenda():
                     alvo_x = st.selectbox("Qual paciente excluir nesta data?",
                         nomes, key=f"calXP_{uk}")
                     if st.form_submit_button("Confirmar exclusão"):
-                        p_obj = pacientes_map.get(alvo_x)
-                        if p_obj:
-                            hi, _ = hr.split(" - ")
-                            h, m = map(int, hi.split(":"))
-                            ini = datetime.combine(data_d, time(h, m))
-                            sessao_existente = db().query(AgendaSessao).filter(
-                                AgendaSessao.id_paciente == p_obj.id_paciente,
-                                AgendaSessao.data_hora_inicio == ini
-                            ).first()
-                            if sessao_existente:
-                                sessao_existente.status_presenca = StatusPresenca.CANCELADA
-                            else:
-                                db().add(AgendaSessao(id_paciente=p_obj.id_paciente,
-                                    data_hora_inicio=ini,
-                                    data_hora_fim=ini.replace(hour=h + 1),
-                                    status_presenca=StatusPresenca.CANCELADA,
-                                    recorrente=True))
-                            try: db().commit()
-                            except Exception: db().rollback()
-                        del st.session_state[f"calEx_{uk}"]
-                        st.rerun()
+                        from app.services.financeiro import is_mes_fechado
+                        if is_mes_fechado(db(), data_d):
+                            st.error(f"Erro: O período {data_d.strftime('%m/%Y')} está fechado para edições.")
+                        else:
+                            p_obj = pacientes_map.get(alvo_x)
+                            if p_obj:
+                                hi, _ = hr.split(" - ")
+                                h, m = map(int, hi.split(":"))
+                                ini = datetime.combine(data_d, time(h, m))
+                                sessao_existente = db().query(AgendaSessao).filter(
+                                    AgendaSessao.id_paciente == p_obj.id_paciente,
+                                    AgendaSessao.data_hora_inicio == ini
+                                ).first()
+                                if sessao_existente:
+                                    sessao_existente.status_presenca = StatusPresenca.CANCELADA
+                                else:
+                                    db().add(AgendaSessao(id_paciente=p_obj.id_paciente,
+                                        data_hora_inicio=ini,
+                                        data_hora_fim=ini.replace(hour=h + 1),
+                                        status_presenca=StatusPresenca.CANCELADA,
+                                        recorrente=True))
+                                try: db().commit()
+                                except Exception: db().rollback()
+                            del st.session_state[f"calEx_{uk}"]
+                            st.rerun()
             if st.session_state.get(f"calEd_{uk}"):
                 with st.form(f"calF_{uk}"):
                     alvo = st.selectbox("Qual paciente alterar?", nomes,
@@ -225,9 +234,14 @@ def tela_agenda():
                         index=FAIXAS_HORARIO.index(hr) if hr in FAIXAS_HORARIO else 0,
                         key=f"calNH_{uk}")
                     if st.form_submit_button("Salvar"):
+                        from app.services.financeiro import is_mes_fechado
                         p_obj = pacientes_map.get(alvo)
                         if not p_obj:
                             st.error("Paciente não encontrado.")
+                        elif not tipo.startswith("Permanente") and is_mes_fechado(db(), data_d):
+                            st.error(f"Erro: O período original ({data_d.strftime('%m/%Y')}) está fechado para edições.")
+                        elif not tipo.startswith("Permanente") and is_mes_fechado(db(), nd):
+                            st.error(f"Erro: O novo período ({nd.strftime('%m/%Y')}) está fechado para edições.")
                         else:
                             hn, _ = nh.split(" - ")
                             hh, mm = map(int, hn.split(":"))
@@ -316,7 +330,11 @@ def tela_agenda():
         if c2.button("Editar", key=f"eds_{s.id_sessao}"):
             st.session_state[f"edsess_{s.id_sessao}"] = True
         if c3.button("Excluir", key=f"dls_{s.id_sessao}"):
-            db().delete(s); db().commit()
+            from app.services.financeiro import is_mes_fechado
+            if is_mes_fechado(db(), s.data_hora_inicio.date()):
+                flash(f"Erro: O período {s.data_hora_inicio.strftime('%m/%Y')} está fechado para edições.", "error")
+            else:
+                db().delete(s); db().commit()
             st.rerun()
         if st.session_state.get(f"edsess_{s.id_sessao}"):
             with st.form(f"fsess_{s.id_sessao}"):
@@ -327,14 +345,20 @@ def tela_agenda():
                 nh = cc2.selectbox("Novo horário", FAIXAS_HORARIO,
                     key=f"nh_{s.id_sessao}")
                 if st.form_submit_button("Salvar"):
-                    hi, _ = nh.split(" - ")
-                    h, m = map(int, hi.split(":"))
-                    ini = datetime.combine(nd, time(h, m))
-                    s.data_hora_inicio = ini
-                    s.data_hora_fim = ini.replace(hour=h + 1)
-                    db().commit()
-                    del st.session_state[f"edsess_{s.id_sessao}"]
-                    st.rerun()
+                    from app.services.financeiro import is_mes_fechado
+                    if is_mes_fechado(db(), s.data_hora_inicio.date()):
+                        st.error(f"Erro: O período original ({s.data_hora_inicio.strftime('%m/%Y')}) está fechado para edições.")
+                    elif is_mes_fechado(db(), nd):
+                        st.error(f"Erro: O novo período ({nd.strftime('%m/%Y')}) está fechado para edições.")
+                    else:
+                        hi, _ = nh.split(" - ")
+                        h, m = map(int, hi.split(":"))
+                        ini = datetime.combine(nd, time(h, m))
+                        s.data_hora_inicio = ini
+                        s.data_hora_fim = ini.replace(hour=h + 1)
+                        db().commit()
+                        del st.session_state[f"edsess_{s.id_sessao}"]
+                        st.rerun()
     rows = [{"Paciente": (db().get(Paciente, s.id_paciente).nome
                           if db().get(Paciente, s.id_paciente) else "?"),
              "Inicio": s.data_hora_inicio.strftime("%d/%m %H:%M"),

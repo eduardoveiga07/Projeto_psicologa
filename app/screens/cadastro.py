@@ -21,31 +21,77 @@ from app.services.validacao_negocio import (
 )
 
 
-@st.dialog("Confirmar Exclusão de Paciente")
+@st.dialog("Confirmar Exclusão ou Anonimização de Paciente")
 def confirmar_exclusao_paciente(p_id, p_nome):
-    st.warning(f"⚠️ Atenção: Você está prestes a excluir permanentemente o(a) paciente **{p_nome}**.")
-    st.write("Esta ação é **irreversível**. Ao confirmar, todos os dados do paciente (sessões, histórico de contratos e exceções de horários) serão excluídos definitivamente (exclusão física - LGPD).")
+    st.warning(f"⚠️ Atenção: Defina a ação desejada para o(a) paciente **{p_nome}**.")
     
-    confirmacao_texto = st.text_input("Para prosseguir, digite 'EXCLUIR' no campo abaixo:")
+    opcao_ex = st.radio(
+        "Selecione a abordagem de privacidade:",
+        ["Anonimizar Paciente (Recomendado - remove dados pessoais mas preserva relatórios financeiros)", 
+         "Excluir Fisicamente (Apaga tudo permanentemente - direito ao esquecimento LGPD)"],
+        key="opcao_exclusao_lgpd"
+    )
     
-    c1, c2 = st.columns(2)
-    if c1.button("Confirmar Exclusão", type="primary", disabled=(confirmacao_texto != "EXCLUIR")):
-        s = db()
-        try:
-            s.query(AgendaSessao).filter(AgendaSessao.id_paciente == p_id).delete()
-            s.query(ContratoHistorico).filter(ContratoHistorico.id_paciente == p_id).delete()
-            p = s.query(Paciente).get(p_id)
-            if p:
-                s.delete(p)
-            s.commit()
-            invalidar_cache()
-            registrar(s, st.session_state.username, "PACIENTE_EXCLUIDO", "manual")
-            flash(f"Paciente '{p_nome}' foi excluído permanentemente.", "success")
-        except Exception as e:
-            s.rollback()
-            flash(f"Erro ao excluir paciente: {str(e)}", "error")
-        st.rerun()
+    s = db()
+    
+    if opcao_ex.startswith("Anonimizar"):
+        st.write("ℹ️ **Como funciona:** O nome, telefone, e-mail e data de nascimento serão substituídos por dados genéricos. O histórico de sessões e faturamento passados será **mantido intacto** para o financeiro do consultório, e sessões futuras serão removidas.")
+        confirmacao_texto = st.text_input("Para prosseguir com a anonimização, digite 'ANONIMIZAR' abaixo:")
         
+        c1, c2 = st.columns(2)
+        if c1.button("Confirmar Anonimização", type="primary", disabled=(confirmacao_texto != "ANONIMIZAR")):
+            try:
+                p = s.query(Paciente).get(p_id)
+                if p:
+                    # Remove sessões futuras AGENDADA
+                    from app.services.agenda_geracao import AgendaGeracaoService
+                    AgendaGeracaoService.remover_sessoes_futuras(s, p_id, datetime.now().date())
+                    
+                    # Anonimiza dados pessoais
+                    cod_id = str(p.id_paciente)[:8].upper()
+                    p.nome = f"Paciente Anonimizado #{cod_id}"
+                    p.telefone = "5500000000000"
+                    p.email = "anonimo@consultorio.com"
+                    p.data_nascimento = date(1970, 1, 1)
+                    p.status = StatusPaciente.INATIVO
+                    p.data_desativacao = datetime.now().date()
+                    
+                    s.commit()
+                    invalidar_cache()
+                    registrar(s, st.session_state.username, "PACIENTE_ANONIMIZADO", f"codigo={cod_id}")
+                    flash(f"Paciente foi anonimizado com sucesso.", "success")
+                else:
+                    st.error("Paciente não encontrado.")
+            except Exception as e:
+                s.rollback()
+                flash(f"Erro ao anonimizar paciente: {str(e)}", "error")
+            st.rerun()
+    else:
+        st.write("⚠️ **Como funciona:** Todos os registros (paciente, contratos históricos e sessões) serão **excluídos permanentemente** do banco de dados de forma física. Esta ação é **irreversível**.")
+        confirmacao_texto = st.text_input("Para prosseguir com a exclusão física, digite 'EXCLUIR' abaixo:")
+        
+        c1, c2 = st.columns(2)
+        if c1.button("Confirmar Exclusão Física", type="primary", disabled=(confirmacao_texto != "EXCLUIR")):
+            try:
+                sessoes_paciente = s.query(AgendaSessao).filter(AgendaSessao.id_paciente == p_id).all()
+                from app.services.comprovantes import deletar_comprovante
+                for sessao in sessoes_paciente:
+                    if sessao.comprovante_nome:
+                        deletar_comprovante(sessao.comprovante_nome)
+                s.query(AgendaSessao).filter(AgendaSessao.id_paciente == p_id).delete()
+                s.query(ContratoHistorico).filter(ContratoHistorico.id_paciente == p_id).delete()
+                p = s.query(Paciente).get(p_id)
+                if p:
+                    s.delete(p)
+                s.commit()
+                invalidar_cache()
+                registrar(s, st.session_state.username, "PACIENTE_EXCLUIDO_FISICO", f"id={p_id}")
+                flash(f"Paciente '{p_nome}' foi excluído fisicamente com sucesso.", "success")
+            except Exception as e:
+                s.rollback()
+                flash(f"Erro ao excluir paciente: {str(e)}", "error")
+            st.rerun()
+            
     if c2.button("Cancelar"):
         st.rerun()
 
@@ -118,14 +164,35 @@ def exportar_paciente_dialog(p_id, p_nome):
     
     json_str = json.dumps(dados_exportacao, default=json_serial, indent=2, ensure_ascii=False)
     
-    st.success("Relatório de portabilidade compilado com sucesso!")
-    st.download_button(
-        label="Baixar Arquivo JSON",
+    # Gera PDF estruturado de portabilidade
+    from app.services.pdf_export import gerar_pdf_portabilidade
+    try:
+        pdf_bytes = gerar_pdf_portabilidade(p, contratos, sessoes)
+    except Exception as e:
+        pdf_bytes = b""
+        st.error(f"Erro ao compilar PDF de portabilidade: {e}")
+        
+    st.success("Relatórios de portabilidade gerados com sucesso!")
+    col_pdf, col_json = st.columns(2)
+    
+    if pdf_bytes:
+        col_pdf.download_button(
+            label="📥 Baixar Portabilidade em PDF",
+            data=pdf_bytes,
+            file_name=f"portabilidade_lgpd_{p.nome.lower().replace(' ', '_')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+        
+    col_json.download_button(
+        label="📥 Baixar Portabilidade em JSON",
         data=json_str,
         file_name=f"portabilidade_lgpd_{p.nome.lower().replace(' ', '_')}.json",
-        mime="application/json"
+        mime="application/json",
+        use_container_width=True
     )
-    if st.button("Fechar", key="fechar_export_dialog"):
+    
+    if st.button("Fechar", key="fechar_export_dialog", use_container_width=True):
         st.rerun()
 
 

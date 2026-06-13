@@ -268,3 +268,197 @@ def gerar_pdf(titulo: str, linhas: list, filtros: dict = None, totais: dict = No
     # Construção do documento passando o NumberedCanvas customizado
     doc.build(elementos, canvasmaker=NumberedCanvas)
     return buf.getvalue()
+
+
+def gerar_pdf_portabilidade(p, contratos: list, sessoes: list) -> bytes:
+    """Gera um PDF estruturado contendo todos os dados do paciente para conformidade LGPD."""
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,  # Retrato para documento cadastral
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+        topMargin=1.5 * cm,
+        bottomMargin=2.0 * cm
+    )
+    
+    estilos = getSampleStyleSheet()
+    
+    titulo_estilo = ParagraphStyle(
+        "LgpdTitle",
+        parent=estilos["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor("#0f3d3e"),
+        alignment=0,
+        spaceAfter=15
+    )
+    
+    h1_estilo = ParagraphStyle(
+        "LgpdH1",
+        parent=estilos["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        leading=16,
+        textColor=colors.HexColor("#165a4c"),
+        spaceBefore=12,
+        spaceAfter=6
+    )
+    
+    texto_estilo = ParagraphStyle(
+        "LgpdText",
+        parent=estilos["Normal"],
+        fontName="Helvetica",
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#2e3340")
+    )
+    
+    texto_bold_estilo = ParagraphStyle(
+        "LgpdTextBold",
+        parent=texto_estilo,
+        fontName="Helvetica-Bold"
+    )
+    
+    estilo_celula = ParagraphStyle(
+        "LgpdCell",
+        parent=estilos["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#2e3340")
+    )
+    
+    estilo_cabecalho = ParagraphStyle(
+        "LgpdHeader",
+        parent=estilos["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8,
+        leading=10,
+        textColor=colors.white
+    )
+
+    elementos = []
+    
+    # Título e Meta
+    elementos.append(Paragraph("Relatório de Portabilidade de Dados (LGPD)", titulo_estilo))
+    data_geracao = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    elementos.append(Paragraph(f"<b>Data de Exportação:</b> {data_geracao}", texto_estilo))
+    elementos.append(Paragraph("Este documento contém todas as informações pessoais e financeiras coletadas na plataforma em conformidade com o Art. 18 da Lei Geral de Proteção de Dados (LGPD).", texto_estilo))
+    elementos.append(Spacer(1, 0.4 * cm))
+    
+    # Linha decorativa
+    linha_decorativa = Table([[""]], colWidths=[doc.width], rowHeights=[2])
+    linha_decorativa.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0f3d3e")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    elementos.append(linha_decorativa)
+    elementos.append(Spacer(1, 0.4 * cm))
+    
+    # 1. DADOS CADASTRAIS DO PACIENTE
+    elementos.append(Paragraph("1. Dados Cadastrais", h1_estilo))
+    
+    nasc = p.data_nascimento.strftime("%d/%m/%Y") if p.data_nascimento else "Não informada"
+    ad = p.ativo_desde.strftime("%d/%m/%Y") if p.ativo_desde else "Não informada"
+    
+    dados_cadastrais = [
+        [Paragraph("<b>Nome Completo:</b>", texto_estilo), Paragraph(p.nome, texto_estilo)],
+        [Paragraph("<b>Telefone:</b>", texto_estilo), Paragraph(p.telefone, texto_estilo)],
+        [Paragraph("<b>E-mail:</b>", texto_estilo), Paragraph(p.email or "—", texto_estilo)],
+        [Paragraph("<b>Data Nascimento:</b>", texto_estilo), Paragraph(nasc, texto_estilo)],
+        [Paragraph("<b>Tipo de Contrato:</b>", texto_estilo), Paragraph(p.tipo_contrato.value if p.tipo_contrato else "—", texto_estilo)],
+        [Paragraph("<b>Frequência Padrão:</b>", texto_estilo), Paragraph(p.frequencia.value if p.frequencia else "—", texto_estilo)],
+        [Paragraph("<b>Horário Atendimento:</b>", texto_estilo), Paragraph(p.horario_atendimento or "—", texto_estilo)],
+        [Paragraph("<b>Ativo Desde:</b>", texto_estilo), Paragraph(ad, texto_estilo)],
+        [Paragraph("<b>Status:</b>", texto_estilo), Paragraph(p.status.value, texto_bold_estilo)],
+    ]
+    
+    t_cad = Table(dados_cadastrais, colWidths=[4 * cm, doc.width - 4 * cm])
+    t_cad.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccd6d3")),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f4f7f6")),
+        ("PADDING", (0, 0), (-1, -1), 5),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    elementos.append(t_cad)
+    elementos.append(Spacer(1, 0.5 * cm))
+    
+    # 2. HISTÓRICO DE CONTRATOS
+    elementos.append(Paragraph("2. Histórico de Vigência de Contratos", h1_estilo))
+    if not contratos:
+        elementos.append(Paragraph("Nenhum histórico de vigência de contrato registrado para este paciente.", texto_estilo))
+    else:
+        dados_contratos = [[
+            Paragraph("Vigência De", estilo_cabecalho),
+            Paragraph("Vigência Até", estilo_cabecalho),
+            Paragraph("Frequência", estilo_cabecalho),
+            Paragraph("Valor Sessão", estilo_cabecalho),
+            Paragraph("Dias de Atendimento", estilo_cabecalho)
+        ]]
+        
+        for c in contratos:
+            ate_str = c.vigente_ate.strftime("%d/%m/%Y") if c.vigente_ate else "Vigente (Atual)"
+            valor_br = f"R$ {float(c.valor_sessao):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            dados_contratos.append([
+                Paragraph(c.vigente_de.strftime("%d/%m/%Y"), estilo_celula),
+                Paragraph(ate_str, estilo_celula),
+                Paragraph(c.frequencia.value, estilo_celula),
+                Paragraph(valor_br, estilo_celula),
+                Paragraph(c.dias_semana or "—", estilo_celula)
+            ])
+            
+        t_cont = Table(dados_contratos, colWidths=[3 * cm, 3 * cm, 3 * cm, 3 * cm, doc.width - 12 * cm])
+        t_cont.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#165a4c")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccd6d3")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f7f6")]),
+            ("PADDING", (0, 0), (-1, -1), 5),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elementos.append(t_cont)
+        
+    elementos.append(Spacer(1, 0.5 * cm))
+    
+    # 3. HISTÓRICO DE SESSÕES
+    elementos.append(Paragraph("3. Histórico de Agendamentos e Sessões", h1_estilo))
+    if not sessoes:
+        elementos.append(Paragraph("Nenhuma sessão registrada para este paciente.", texto_estilo))
+    else:
+        dados_sessoes = [[
+            Paragraph("Data/Hora Início", estilo_cabecalho),
+            Paragraph("Duração / Fim", estilo_cabecalho),
+            Paragraph("Situação (Presença)", estilo_cabecalho),
+            Paragraph("Pagamento", estilo_cabecalho),
+            Paragraph("Valor Cobrado", estilo_cabecalho)
+        ]]
+        
+        for s in sessoes:
+            quando_ini = s.data_hora_inicio.strftime("%d/%m/%Y %H:%M")
+            quando_fim = s.data_hora_fim.strftime("%H:%M")
+            valor_br = f"R$ {float(s.valor_sessao):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if s.valor_sessao is not None else "—"
+            
+            dados_sessoes.append([
+                Paragraph(quando_ini, estilo_celula),
+                Paragraph(f"Até {quando_fim}", estilo_celula),
+                Paragraph(s.status_presenca.value, estilo_celula),
+                Paragraph(s.status_pagamento.value, estilo_celula),
+                Paragraph(valor_br, estilo_celula)
+            ])
+            
+        t_sess = Table(dados_sessoes, colWidths=[4.5 * cm, 3.5 * cm, 4 * cm, 3.5 * cm, doc.width - 15.5 * cm])
+        t_sess.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#165a4c")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccd6d3")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f7f6")]),
+            ("PADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elementos.append(t_sess)
+        
+    doc.build(elementos, canvasmaker=NumberedCanvas)
+    return buf.getvalue()

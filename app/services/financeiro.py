@@ -316,3 +316,20 @@ def expandir_recorrentes(db, ano: int, mes: int):
             data_pagamento=date(ano, mes, dia) if eh_passado else None,
             recorrente=False))
     db.commit()
+
+
+def is_mes_fechado(db, data_verificar) -> bool:
+    """Verifica se o mês correspondente a uma data ou string YYYY-MM está fechado no banco de dados."""
+    from app.db.models import FechamentoMensal
+    if isinstance(data_verificar, (date, datetime)):
+        ref = f"{data_verificar.year:04d}-{data_verificar.month:02d}"
+    elif isinstance(data_verificar, str):
+        # assume YYYY-MM ou data ISO
+        if len(data_verificar) >= 7:
+            ref = data_verificar[:7]  # YYYY-MM
+        else:
+            return False
+    else:
+        return False
+    return db.query(FechamentoMensal).filter(FechamentoMensal.mes_referencia == ref).first() is not None
+

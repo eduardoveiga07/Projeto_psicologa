@@ -55,29 +55,61 @@ def tela_pagamentos():
             pag_r = cc5.selectbox("Pagamento",
                 [e.value for e in StatusPagamento])
             if st.form_submit_button("Lançar"):
+                from app.services.financeiro import is_mes_fechado
                 if nm_r in mapa:
-                    hi, _ = hr_r.split(" - ")
-                    h, m = map(int, hi.split(":"))
-                    ini = datetime.combine(dt_r, time(h, m))
-                    try:
-                        db().add(AgendaSessao(
-                            id_paciente=mapa[nm_r].id_paciente,
-                            data_hora_inicio=ini,
-                            data_hora_fim=ini.replace(hour=h + 1),
-                            status_presenca=StatusPresenca(pres_r),
-                            status_pagamento=StatusPagamento(pag_r)))
-                        db().commit()
-                        st.success(f"Sessão de {dt_r.strftime('%d/%m/%Y')} lançado.")
-                    except Exception:
-                        db().rollback()
-                        st.error("Horário já ocupado nesta data.")
+                    if is_mes_fechado(db(), dt_r):
+                        st.error(f"Erro: O período {dt_r.strftime('%m/%Y')} está fechado para novos lançamentos.")
+                    else:
+                        hi, _ = hr_r.split(" - ")
+                        h, m = map(int, hi.split(":"))
+                        ini = datetime.combine(dt_r, time(h, m))
+                        try:
+                            db().add(AgendaSessao(
+                                id_paciente=mapa[nm_r].id_paciente,
+                                data_hora_inicio=ini,
+                                data_hora_fim=ini.replace(hour=h + 1),
+                                status_presenca=StatusPresenca(pres_r),
+                                status_pagamento=StatusPagamento(pag_r)))
+                            db().commit()
+                            st.success(f"Sessão de {dt_r.strftime('%d/%m/%Y')} lançada.")
+                        except Exception:
+                            db().rollback()
+                            st.error("Horário já ocupado nesta data.")
 
-    sessoes = db().query(AgendaSessao).filter(
-        AgendaSessao.status_presenca != StatusPresenca.CANCELADA).order_by(
-        AgendaSessao.data_hora_inicio.desc()).limit(100).all()
+    # ===== FILTROS RÁPIDOS =====
+    st.write("---")
+    filtro_r = st.selectbox(
+        "⚡ Filtros Rápidos",
+        ["Todos", "Mês Atual", "Pagamentos Pendentes", "Sessões Realizadas"],
+        key="filtro_rapido_sessao"
+    )
+
+    query = db().query(AgendaSessao).filter(
+        AgendaSessao.status_presenca != StatusPresenca.CANCELADA
+    )
+
+    hoje_dt = datetime.now()
+    if filtro_r == "Mês Atual":
+        from sqlalchemy import extract
+        query = query.filter(
+            extract("year", AgendaSessao.data_hora_inicio) == hoje_dt.year,
+            extract("month", AgendaSessao.data_hora_inicio) == hoje_dt.month
+        )
+    elif filtro_r == "Pagamentos Pendentes":
+        query = query.filter(
+            AgendaSessao.status_pagamento.in_([
+                StatusPagamento.PENDENTE, StatusPagamento.ATRASADO
+            ])
+        )
+    elif filtro_r == "Sessões Realizadas":
+        query = query.filter(
+            AgendaSessao.status_presenca == StatusPresenca.REALIZADA
+        )
+
+    sessoes = query.order_by(AgendaSessao.data_hora_inicio.desc()).limit(100).all()
 
     if not sessoes:
-        st.info("Nenhuma sessão registrada ainda.")
+        st.info("Nenhuma sessão encontrada para o filtro selecionado.")
 
     # PDF com TODAS as sessões e seus pagamentos (sempre disponível).
     todas = []
@@ -105,21 +137,54 @@ def tela_pagamentos():
         quando = s.data_hora_inicio.strftime("%d/%m/%Y %H:%M")
         pago_str = f" | 📅 Pago em {s.data_pagamento.strftime('%d/%m/%Y')}" if s.status_pagamento == StatusPagamento.PAGO and s.data_pagamento else ""
         with st.expander(f"{nome} — {quando} — {s.status_presenca.value} / {s.status_pagamento.value}{pago_str}"):
+            from app.services.financeiro import is_mes_fechado
+            fechado = is_mes_fechado(db(), s.data_hora_inicio.date())
+            if fechado:
+                st.warning("🔒 Este período está fechado. Reabra o mês no financeiro para fazer edições.")
             c1, c2 = st.columns(2)
             pres = c1.selectbox("Situação", [e.value for e in StatusPresenca],
                 index=[e.value for e in StatusPresenca].index(
                     s.status_presenca.value),
-                key=f"pres_{s.id_sessao}")
+                key=f"pres_{s.id_sessao}",
+                disabled=fechado)
             pag = c2.selectbox("Pagamento",
                 [e.value for e in StatusPagamento],
                 index=[e.value for e in StatusPagamento].index(
                     s.status_pagamento.value),
-                key=f"pag_{s.id_sessao}")
+                key=f"pag_{s.id_sessao}",
+                disabled=fechado)
             
             if s.data_pagamento:
                 st.info(f"📅 **Pagamento registrado em:** {s.data_pagamento.strftime('%d/%m/%Y')}")
                 
-            if st.button("Salvar", key=f"save_{s.id_sessao}"):
+            comp_file = None
+            del_comp = False
+            if pag == StatusPagamento.PAGO.value:
+                if s.comprovante_nome:
+                    import os
+                    from app.services.comprovantes import obter_comprovante_caminho
+                    caminho = obter_comprovante_caminho(s.comprovante_nome)
+                    if caminho and os.path.exists(caminho):
+                        with open(caminho, "rb") as f:
+                            btn_data = f.read()
+                        nome_dl = s.comprovante_nome_original or s.comprovante_nome
+                        mime_dl = s.comprovante_mime or "application/octet-stream"
+                        tamanho_kb = f" ({s.comprovante_tamanho // 1024} KB)" if s.comprovante_tamanho else ""
+                        enviado_em = f" — {s.comprovante_enviado_em.strftime('%d/%m/%Y %H:%M')}" if s.comprovante_enviado_em else ""
+                        st.download_button(
+                            label=f"📎 Baixar: {nome_dl}{tamanho_kb}{enviado_em}",
+                            data=btn_data,
+                            file_name=nome_dl,
+                            mime=mime_dl,
+                            key=f"dl_comp_{s.id_sessao}"
+                        )
+                    else:
+                        st.caption("⚠️ Arquivo físico do comprovante ausente")
+                    del_comp = st.checkbox("Excluir comprovante?", key=f"del_comp_{s.id_sessao}", disabled=fechado)
+                
+                comp_file = st.file_uploader("Enviar comprovante (PDF, Imagem)", type=["pdf", "png", "jpg", "jpeg"], key=f"comp_u_{s.id_sessao}", disabled=fechado)
+                
+            if not fechado and st.button("Salvar", key=f"save_{s.id_sessao}"):
                 novo_pres = StatusPresenca(pres)
                 s.status_presenca = novo_pres
                 novo_pag = StatusPagamento(pag)
@@ -144,9 +209,44 @@ def tela_pagamentos():
                             s.data_pagamento = datetime.now().date()
                     else:
                         s.data_pagamento = None
-                db().commit()
-                flash("Atualizado.", "success")
-                st.rerun()
+                
+                # Processar comprovante com validação e auditoria
+                from app.services.comprovantes import (
+                    salvar_comprovante, deletar_comprovante,
+                    aplicar_metadados_comprovante, limpar_metadados_comprovante,
+                    ComprovantesError
+                )
+                erro_comp = None
+                if s.status_pagamento != StatusPagamento.PAGO:
+                    if s.comprovante_nome:
+                        deletar_comprovante(s.comprovante_nome)
+                        registrar(db(), st.session_state.username, "COMPROVANTE_REMOVIDO",
+                                  f"sessao_id={s.id_sessao} arquivo={s.comprovante_nome} motivo=status_nao_pago")
+                        limpar_metadados_comprovante(s)
+                else:
+                    try:
+                        if del_comp:
+                            arq_anterior = s.comprovante_nome
+                            deletar_comprovante(arq_anterior)
+                            limpar_metadados_comprovante(s)
+                            registrar(db(), st.session_state.username, "COMPROVANTE_REMOVIDO",
+                                      f"sessao_id={s.id_sessao} arquivo={arq_anterior}")
+                        if comp_file:
+                            if s.comprovante_nome:
+                                deletar_comprovante(s.comprovante_nome)
+                            meta = salvar_comprovante(comp_file, "sessao", s.id_sessao)
+                            aplicar_metadados_comprovante(s, meta)
+                            registrar(db(), st.session_state.username, "COMPROVANTE_ANEXADO",
+                                      f"sessao_id={s.id_sessao} arquivo={meta['nome']} mime={meta['mime']} bytes={meta['tamanho']}")
+                    except ComprovantesError as ce:
+                        erro_comp = str(ce)
+                        
+                if erro_comp:
+                    st.error(erro_comp)
+                else:
+                    db().commit()
+                    flash("Atualizado.", "success")
+                    st.rerun()
 
     # Resumo de inadimplência com Ações em Lote (st.data_editor)
     st.write("---")
@@ -184,19 +284,30 @@ def tela_pagamentos():
         if c1.button("Confirmar Pagamento das Selecionadas", type="primary", disabled=not confirmado):
             selecionadas = df_editado[df_editado["Pagar em Lote"] == True]
             if not selecionadas.empty:
-                count_pagos = 0
-                hoje = datetime.now().date()
+                from app.services.financeiro import is_mes_fechado
+                has_closed = False
                 for idx, row in selecionadas.iterrows():
                     sessao_id = int(row["id_sessao"])
                     sessao = db().query(AgendaSessao).get(sessao_id)
-                    if sessao:
-                        sessao.status_pagamento = StatusPagamento.PAGO
-                        sessao.data_pagamento = hoje
-                        count_pagos += 1
-                db().commit()
-                registrar(db(), st.session_state.username, "PAGAMENTO_LOTE", f"quantidade={count_pagos}")
-                flash(f"Sucesso: {count_pagos} pagamentos registrados em lote!", "success")
-                st.rerun()
+                    if sessao and is_mes_fechado(db(), sessao.data_hora_inicio.date()):
+                        st.error(f"Erro: A sessão de {row['Paciente']} em {row['Data']} pertence a um período fechado.")
+                        has_closed = True
+                        break
+                
+                if not has_closed:
+                    count_pagos = 0
+                    hoje = datetime.now().date()
+                    for idx, row in selecionadas.iterrows():
+                        sessao_id = int(row["id_sessao"])
+                        sessao = db().query(AgendaSessao).get(sessao_id)
+                        if sessao:
+                            sessao.status_pagamento = StatusPagamento.PAGO
+                            sessao.data_pagamento = hoje
+                            count_pagos += 1
+                    db().commit()
+                    registrar(db(), st.session_state.username, "PAGAMENTO_LOTE", f"quantidade={count_pagos}")
+                    flash(f"Sucesso: {count_pagos} pagamentos registrados em lote!", "success")
+                    st.rerun()
             else:
                 st.warning("Selecione pelo menos uma sessão marcando o checkbox 'Pagar em Lote'.")
                 

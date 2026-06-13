@@ -164,6 +164,33 @@ class FinanceiroDbTest(unittest.TestCase):
         self.assertEqual(hist[1]["mes_rotulo"], "05/2026")
         self.assertEqual(hist[2]["mes_rotulo"], "06/2026")
 
+    def test_is_mes_fechado(self):
+        from app.services.financeiro import is_mes_fechado
+        from app.db.models import FechamentoMensal
+
+        # Inicialmente deve estar aberto
+        self.assertFalse(is_mes_fechado(self.session, date(2026, 6, 15)))
+        self.assertFalse(is_mes_fechado(self.session, "2026-06"))
+
+        # Adiciona fechamento
+        f = FechamentoMensal(
+            mes_referencia="2026-06",
+            fechado_por="test_user",
+            total_recebido=Decimal("1000.00"),
+            total_despesas=Decimal("200.00")
+        )
+        self.session.add(f)
+        self.session.commit()
+
+        # Agora deve retornar True
+        self.assertTrue(is_mes_fechado(self.session, date(2026, 6, 15)))
+        self.assertTrue(is_mes_fechado(self.session, datetime(2026, 6, 10, 14, 30)))
+        self.assertTrue(is_mes_fechado(self.session, "2026-06"))
+
+        # Outros meses devem continuar abertos
+        self.assertFalse(is_mes_fechado(self.session, date(2026, 7, 1)))
+        self.assertFalse(is_mes_fechado(self.session, "2026-07"))
+
 
 if __name__ == "__main__":
     unittest.main()

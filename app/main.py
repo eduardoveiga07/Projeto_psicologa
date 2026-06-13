@@ -25,6 +25,7 @@ from app.screens.financeiro import tela_financeiro
 from app.screens.agenda import tela_agenda
 from app.screens.cadastro import tela_cadastro
 from app.screens.auditoria import tela_auditoria
+from app.screens.saude import tela_saude
 from app.screens.shared import db
 from app.version import __version__
 
@@ -54,6 +55,8 @@ ul[role="listbox"] li:hover { background-color: #2e3340 !important; }
 @st.cache_resource
 def _bootstrap():
     criar_tabelas()
+    from app.services.scheduler import iniciar_agendador
+    iniciar_agendador()
     from app.auth.init_users import inicializar_usuarios
     inicializar_usuarios()
     # Migracao: garante 1 periodo de historico de contrato p/ pacientes existentes
@@ -115,15 +118,41 @@ try:
                  "Calendário": tela_calendario,
                  "Pagamentos": tela_pagamentos, "Financeiro": tela_financeiro,
                  "Usuários": tela_usuarios,
-                 "Auditoria": tela_auditoria}
+                 "Auditoria": tela_auditoria,
+                 "Saúde do Sistema": tela_saude}
         permitidas = obter_telas_permitidas(perfil)
 
         aba = st.sidebar.radio("Menu", permitidas)
         
+        # Busca Global (mínimo 3 caracteres para evitar queries lentas)
+        st.sidebar.markdown("---")
+        busca_global = st.sidebar.text_input(
+            "🔍 Busca Global",
+            placeholder="Mín. 3 caracteres…",
+            key="sys_busca_global",
+            help="Busca pacientes (nome, e-mail, telefone), despesas e sessões."
+        )
+
+        # Notificações no Sidebar
+        from app.services.notificacoes import obter_notificacoes
+        notifs = obter_notificacoes(db())
+        if notifs:
+            with st.sidebar.expander(f"🔔 Notificações ({len(notifs)})", expanded=False):
+                for n in notifs:
+                    st.markdown(f"{n['icone']} **{n['titulo']}**  \n*{n['detalhe']}*")
+                    st.markdown("---")
+        else:
+            st.sidebar.caption("✅ Nenhuma notificação pendente.")
+        
         st.sidebar.divider()
         st.sidebar.caption(f"Versão: v{__version__}")
         
-        TODAS[aba]()
+        # Exibe busca se o usuário digitou algo (a tela interna valida mínimo de chars)
+        if busca_global.strip():
+            from app.screens.busca_global import tela_busca_global
+            tela_busca_global(busca_global.strip())
+        else:
+            TODAS[aba]()
 finally:
     # Garante liberação de conexões do banco a cada render do Streamlit
     if "db" in st.session_state:

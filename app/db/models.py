@@ -112,6 +112,13 @@ class AgendaSessao(Base):
     
     # Data do pagamento real
     data_pagamento = Column(Date, nullable=True)
+
+    # Comprovante de pagamento — metadados completos para auditoria/LGPD
+    comprovante_nome = Column(String(200), nullable=True)        # nome gerado internamente (sem path)
+    comprovante_nome_original = Column(String(300), nullable=True)  # nome original do arquivo enviado
+    comprovante_mime = Column(String(100), nullable=True)          # ex: application/pdf, image/jpeg
+    comprovante_tamanho = Column(Integer, nullable=True)           # tamanho em bytes
+    comprovante_enviado_em = Column(DateTime, nullable=True)       # data/hora do upload
     
     paciente = relationship("Paciente", back_populates="sessoes")
     __table_args__ = (
@@ -161,6 +168,13 @@ class Despesa(Base):
     dia_vencimento_mes = Column(Integer, nullable=True)  # ex: dia 5 todo mês
     # Coluna mes_fim opcional para despesas fixas com janela definida
     mes_fim = Column(String(7), nullable=True)
+
+    # Comprovante da despesa — metadados completos para auditoria/LGPD
+    comprovante_nome = Column(String(200), nullable=True)        # nome gerado internamente (sem path)
+    comprovante_nome_original = Column(String(300), nullable=True)  # nome original do arquivo enviado
+    comprovante_mime = Column(String(100), nullable=True)          # ex: application/pdf, image/jpeg
+    comprovante_tamanho = Column(Integer, nullable=True)           # tamanho em bytes
+    comprovante_enviado_em = Column(DateTime, nullable=True)       # data/hora do upload
     __table_args__ = (CheckConstraint("valor >= 0", name="ck_despesa_pos"),)
 
 
@@ -218,3 +232,24 @@ class Indisponibilidade(Base):
     horario = Column(String(13), nullable=True)  # se nao for dia todo
     motivo = Column(Enum(MotivoIndisp), nullable=False, default=MotivoIndisp.OUTRO)
     observacao = Column(String(200), nullable=True)
+
+
+class SistemaStatus(Base):
+    """Status de rotinas do sistema (backups, restores)."""
+    __tablename__ = "sistema_status"
+    id_status = Column(Integer, primary_key=True, autoincrement=True)
+    tipo = Column(String(30), nullable=False)  # 'backup' ou 'teste_restauracao'
+    quando = Column(DateTime, server_default=func.now())
+    status = Column(String(20), nullable=False)  # 'sucesso' ou 'falha'
+    detalhe = Column(Text, nullable=True)
+
+
+class FechamentoMensal(Base):
+    """Fechamento financeiro mensal para bloquear edições retrógradas."""
+    __tablename__ = "fechamentos_mensais"
+    id_fechamento = Column(Integer, primary_key=True, autoincrement=True)
+    mes_referencia = Column(String(7), unique=True, nullable=False)  # 'YYYY-MM'
+    fechado_em = Column(DateTime, server_default=func.now())
+    fechado_por = Column(String(50), nullable=False)  # Username do admin
+    total_recebido = Column(Numeric(12, 2), nullable=False, default=0.0)
+    total_despesas = Column(Numeric(12, 2), nullable=False, default=0.0)

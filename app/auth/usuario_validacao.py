@@ -47,7 +47,8 @@ def obter_telas_permitidas(perfil: str) -> list[str]:
         "Pagamentos",
         "Financeiro",
         "Usuários",
-        "Auditoria"
+        "Auditoria",
+        "Saúde do Sistema"
     ]
     if perfil == Perfil.DONA.value:
         return todas
