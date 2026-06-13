@@ -11,7 +11,7 @@ from app.services.validacao_negocio import validar_valor_despesa
 
 def tela_financeiro():
     mostrar_flash()
-    ui_header("Financeiro — Previsto vs Realizado", "Acompanhe o faturamento previsto, realizado, inadimplência e o controle de despesas do consultório.")
+    ui_header("Financeiro — Previsto vs Realizado", "Acompanhe o faturamento previsto, realizado, inadimplência e o controle de despesas do consultório.", icon="📊")
     c1, c2, c3 = st.columns(3)
     ano = c1.number_input("Ano", 2024, 2040, datetime.now().year)
     periodo = c2.selectbox("Período",
