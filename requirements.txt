@@ -5,4 +5,6 @@ psycopg2-binary
 bcrypt
 reportlab
 cryptography
+coverage
+plotly
 

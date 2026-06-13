@@ -2,13 +2,6 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 
-# Garante o diretório de logs
-LOG_DIR = "logs"
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
-
-LOG_FILE = os.path.join(LOG_DIR, "tecnico.log")
-
 import re
 
 class SegredosMaskFilter(logging.Filter):
@@ -60,17 +53,26 @@ logger.addFilter(SegredosMaskFilter())
 # Evita duplicação de handlers se reimportado
 if not logger.handlers:
     # 1. Handler para gravar em arquivo rotativo (máx 5MB, mantém até 3 arquivos)
-    file_handler = RotatingFileHandler(
-        LOG_FILE,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=3,
-        encoding="utf-8"
-    )
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.INFO)
-    logger.addHandler(file_handler)
+    # Em ambientes com sistema de arquivos read-only (ex: Streamlit Cloud),
+    # o log em arquivo é desativado automaticamente e apenas o console é usado.
+    try:
+        LOG_DIR = "logs"
+        if not os.path.exists(LOG_DIR):
+            os.makedirs(LOG_DIR)
+        LOG_FILE = os.path.join(LOG_DIR, "tecnico.log")
+        file_handler = RotatingFileHandler(
+            LOG_FILE,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8"
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.INFO)
+        logger.addHandler(file_handler)
+    except (OSError, PermissionError):
+        pass  # Sistema de arquivos somente leitura (ex: Streamlit Cloud) — usa só console
 
-    # 2. Handler para imprimir no console/stdout (útil para Docker compose logs)
+    # 2. Handler para imprimir no console/stdout (útil para Docker compose logs e Streamlit Cloud)
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     console_handler.setLevel(logging.INFO)

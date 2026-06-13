@@ -1,4 +1,4 @@
-"""Conexao com PostgreSQL. URL via variavel de ambiente DATABASE_URL."""
+"""Conexao com PostgreSQL. URL via variavel de ambiente DATABASE_URL ou st.secrets."""
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -7,10 +7,21 @@ from app.services.logger import get_logger
 
 logger = get_logger("db")
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+psycopg2://psico:psico@localhost:5432/consultorio")
+def _get_database_url() -> str:
+    """Resolve a DATABASE_URL priorizando st.secrets (Streamlit Cloud)
+    e caindo em variável de ambiente como fallback (Docker/local)."""
+    try:
+        import streamlit as st
+        url = st.secrets.get("DATABASE_URL", None)
+        if url:
+            return url
+    except Exception:
+        pass
+    return os.getenv(
+        "DATABASE_URL",
+        "postgresql+psycopg2://psico:psico@localhost:5432/consultorio")
 
+DATABASE_URL = _get_database_url()
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

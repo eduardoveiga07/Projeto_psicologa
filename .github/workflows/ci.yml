@@ -62,10 +62,34 @@ jobs:
       run: |
         alembic check
 
-    - name: Run Unit Tests
+    - name: Run Unit Tests with Coverage
       run: |
-        python -m unittest discover -s tests
+        coverage run -m unittest discover -s tests
+        coverage report -m
 
     - name: Validate Docker Build
       run: |
         docker build -t test-app .
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Deploy to VPS via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: 22
+        script: |
+          cd /var/www/projeto_consultorio
+          git pull origin main
+          docker compose down
+          docker compose up -d --build
+          docker compose exec -T app alembic upgrade head
+

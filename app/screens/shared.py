@@ -62,15 +62,16 @@ def mostrar_flash():
     fn(f["msg"])
 
 
-def ui_header(titulo: str, subtitulo: str = None):
+def ui_header(titulo: str, subtitulo: str = None, icon: str = None):
     """Componente de cabeçalho padronizado e limpo para as telas."""
-    st.header(titulo)
+    display = f"{icon} {titulo}" if icon else titulo
+    st.header(display)
     if subtitulo:
         st.caption(subtitulo)
     st.divider()
 
 
-def ui_kpi_card(label: str, valor: str, help_text: str = None):
+def ui_kpi_card(label: str, valor: str, help_text: str = None, delta: str = None, delta_color: str = "normal"):
     """Componente de métrica/KPI com design consistente."""
-    st.metric(label=label, value=valor, help=help_text)
+    st.metric(label=label, value=valor, help=help_text, delta=delta, delta_color=delta_color)
 

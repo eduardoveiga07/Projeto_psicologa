@@ -7,6 +7,7 @@ from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
+from reportlab.pdfbase.pdfmetrics import stringWidth
 
 
 class NumberedCanvas(canvas.Canvas):
@@ -41,19 +42,19 @@ class NumberedCanvas(canvas.Canvas):
         self.drawRightString(self._pagesize[0] - 1.5 * cm, 0.8 * cm, page_text)
         
         # Linha decorativa rodapé
-        self.setStrokeColor(colors.HexColor("#dcdde1"))
+        self.setStrokeColor(colors.HexColor("#ccd6d3"))
         self.setLineWidth(0.5)
         self.line(1.5 * cm, 1.2 * cm, self._pagesize[0] - 1.5 * cm, 1.2 * cm)
         
         # --- CABEÇALHO COMPACTO (PÁGINA 2+) ---
         if self._pageNumber > 1:
             self.setFont("Helvetica-Bold", 8)
-            self.setFillColor(colors.HexColor("#2e3340"))
+            self.setFillColor(colors.HexColor("#165a4c"))
             self.drawString(1.5 * cm, self._pagesize[1] - 1.0 * cm, "Consultório de Psicologia — Gestão Clínica")
             self.setFont("Helvetica", 8)
             self.setFillColor(colors.HexColor("#7f8c8d"))
             self.drawRightString(self._pagesize[0] - 1.5 * cm, self._pagesize[1] - 1.0 * cm, "Relatório Operacional")
-            self.setStrokeColor(colors.HexColor("#dcdde1"))
+            self.setStrokeColor(colors.HexColor("#ccd6d3"))
             self.setLineWidth(0.5)
             self.line(1.5 * cm, self._pagesize[1] - 1.1 * cm, self._pagesize[0] - 1.5 * cm, self._pagesize[1] - 1.1 * cm)
             
@@ -77,16 +78,44 @@ def gerar_pdf(titulo: str, linhas: list, filtros: dict = None, totais: dict = No
     
     estilos = getSampleStyleSheet()
     
-    # Criar um estilo customizado para o título
+    # Criar estilos customizados para o título
     titulo_estilo = ParagraphStyle(
         "CustomTitle",
         parent=estilos["Title"],
         fontName="Helvetica-Bold",
         fontSize=18,
         leading=22,
-        textColor=colors.HexColor("#2e3340"),
+        textColor=colors.HexColor("#0f3d3e"),
         alignment=0,  # Alinhado à esquerda
-        spaceAfter=15
+        spaceAfter=10
+    )
+    
+    # Estilos de parágrafo para a tabela (garantir auto-wrap de texto)
+    estilo_celula = ParagraphStyle(
+        "TableCell",
+        parent=estilos["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#2e3340")
+    )
+    
+    estilo_cabecalho = ParagraphStyle(
+        "TableHeader",
+        parent=estilos["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8,
+        leading=10,
+        textColor=colors.white
+    )
+    
+    estilo_total = ParagraphStyle(
+        "TableTotal",
+        parent=estilos["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#0f3d3e")
     )
     
     elementos = []
@@ -107,6 +136,18 @@ def gerar_pdf(titulo: str, linhas: list, filtros: dict = None, totais: dict = No
     data_geracao = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     elementos.append(Paragraph("<b>Consultório de Psicologia</b> — Sistema de Gestão", meta_estilo))
     elementos.append(Paragraph(f"Gerado em: {data_geracao}", meta_estilo))
+    elementos.append(Spacer(1, 0.3 * cm))
+    
+    # Linha decorativa verde petróleo abaixo do cabeçalho
+    linha_decorativa = Table([[""]], colWidths=[doc.width], rowHeights=[2.5])
+    linha_decorativa.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0f3d3e")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    elementos.append(linha_decorativa)
     elementos.append(Spacer(1, 0.4 * cm))
     
     # 2. Seção de Filtros (se fornecidos)
@@ -117,18 +158,18 @@ def gerar_pdf(titulo: str, linhas: list, filtros: dict = None, totais: dict = No
             fontName="Helvetica",
             fontSize=8,
             leading=11,
-            textColor=colors.HexColor("#2c3e50")
+            textColor=colors.HexColor("#1b4d3e")
         )
         filtros_itens = []
         for k, v in filtros.items():
             filtros_itens.append(f"<b>{k}:</b> {v}")
         filtros_str = " | ".join(filtros_itens)
         
-        # Box de filtros com fundo cinza claro
+        # Box de filtros com fundo cinza claro e borda suave
         t_filtros = Table([[Paragraph(f"🔍 <b>Filtros aplicados:</b> {filtros_str}", filtros_estilo)]], colWidths=[doc.width])
         t_filtros.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8f9fa")),
-            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f4f7f6")),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccd6d3")),
             ("PADDING", (0, 0), (-1, -1), 6),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
@@ -140,42 +181,85 @@ def gerar_pdf(titulo: str, linhas: list, filtros: dict = None, totais: dict = No
         elementos.append(Paragraph("Sem registros encontrados.", estilos["Normal"]))
     else:
         cols = list(linhas[0].keys())
-        dados = [cols] + [[str(l.get(c, "")) for c in cols] for l in linhas]
         
-        # Se totais for fornecido, adicionamos a linha de total
+        # Envolve os cabeçalhos em Paragraph para quebra de linha se necessário
+        cabecalhos_p = [Paragraph(col, estilo_cabecalho) for col in cols]
+        
+        # Envolve os dados em Paragraph
+        linhas_p = []
+        for l in linhas:
+            linha_p = []
+            for col in cols:
+                val = str(l.get(col, ""))
+                linha_p.append(Paragraph(val, estilo_celula))
+            linhas_p.append(linha_p)
+            
+        dados = [cabecalhos_p] + linhas_p
+        
+        # Se totais for fornecido, adicionamos a linha de total formatada
         if totais:
             linha_total = []
             for i, col in enumerate(cols):
                 if i == 0:
-                    linha_total.append("TOTAL")
+                    linha_total.append(Paragraph("TOTAL", estilo_total))
                 elif col in totais:
-                    linha_total.append(str(totais[col]))
+                    linha_total.append(Paragraph(str(totais[col]), estilo_total))
                 else:
-                    linha_total.append("")
+                    linha_total.append(Paragraph("", estilo_total))
             dados.append(linha_total)
             
-        t = Table(dados, repeatRows=1)
+        # --- Cálculo Inteligente e Proporcional de Larguras de Colunas ---
+        largura_disponivel = doc.width  # Largura útil da página
+        larguras_desejadas = []
+        
+        for col in cols:
+            # Largura com base no cabeçalho
+            max_w = stringWidth(str(col), "Helvetica-Bold", 8)
+            # Largura com base nos registros
+            for l in linhas:
+                val = str(l.get(col, ""))
+                # Se for um valor longo, limitamos a estimativa no cálculo para evitar inflar demais
+                val_truncado = val[:40]
+                val_w = stringWidth(val_truncado, "Helvetica", 8)
+                if val_w > max_w:
+                    max_w = val_w
+            
+            # Adiciona 12 pontos para padding das células (6 pontos esquerda + 6 pontos direita)
+            larguras_desejadas.append(max_w + 12)
+            
+        # Distribui proporcionalmente
+        soma_desejada = sum(larguras_desejadas)
+        if soma_desejada > 0:
+            largura_minima = 45.0  # pontos
+            # Primeira aproximação proporcional
+            col_widths = [max(largura_minima, w * (largura_disponivel / soma_desejada)) for w in larguras_desejadas]
+            
+            # Normalização final para garantir que feche exatamente na largura disponível
+            soma_ajustada = sum(col_widths)
+            if abs(soma_ajustada - largura_disponivel) > 1.0:
+                col_widths = [w * (largura_disponivel / soma_ajustada) for w in col_widths]
+        else:
+            col_widths = [largura_disponivel / len(cols)] * len(cols)
+            
+        t = Table(dados, colWidths=col_widths, repeatRows=1)
         
         # Configurar estilos de tabela
         estilo_tabela = [
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2e3340")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dcdde1")),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#165a4c")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccd6d3")),
             ("ROWBACKGROUNDS", (0, 1), (-1, (-2 if totais else -1)),
-             [colors.white, colors.HexColor("#f8f9fa")]),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+             [colors.white, colors.HexColor("#f4f7f6")]),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),  # Alinha no topo para parágrafos com quebra
             ("PADDING", (0, 0), (-1, -1), 6),
         ]
         
         if totais:
             # Estilo especial para a linha de totais (última linha)
             estilo_tabela.extend([
-                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#eaeded")),
-                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-                ("LINEABOVE", (0, -1), (-1, -1), 1, colors.HexColor("#2e3340")),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#e1e9e6")),
+                ("LINEABOVE", (0, -1), (-1, -1), 1.2, colors.HexColor("#165a4c")),
                 ("PADDING", (0, -1), (-1, -1), 7),
+                ("VALIGN", (0, -1), (-1, -1), "MIDDLE"),
             ])
             
         t.setStyle(TableStyle(estilo_tabela))
