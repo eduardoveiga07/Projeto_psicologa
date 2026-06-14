@@ -167,7 +167,7 @@ def executar_backup_diario():
         if os.path.exists(temp_raw_path):
             try:
                 os.remove(temp_raw_path)
-            except Exception:
+            except OSError:
                 pass
         
         msg_erro = str(e)
@@ -316,8 +316,8 @@ def executar_teste_restauracao():
             try:
                 with admin_engine.connect() as conn:
                     conn.execute(text(f"DROP DATABASE IF EXISTS {test_db} WITH (FORCE);"))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Não foi possível remover o banco temporário de testes '{test_db}': {e}")
             admin_engine.dispose()
         db.close()
 

@@ -161,25 +161,31 @@ def tela_pagamentos():
             del_comp = False
             if pag == StatusPagamento.PAGO.value:
                 if s.comprovante_nome:
-                    import os
-                    from app.services.comprovantes import obter_comprovante_caminho
-                    caminho = obter_comprovante_caminho(s.comprovante_nome)
-                    if caminho and os.path.exists(caminho):
-                        with open(caminho, "rb") as f:
-                            btn_data = f.read()
-                        nome_dl = s.comprovante_nome_original or s.comprovante_nome
-                        mime_dl = s.comprovante_mime or "application/octet-stream"
-                        tamanho_kb = f" ({s.comprovante_tamanho // 1024} KB)" if s.comprovante_tamanho else ""
-                        enviado_em = f" — {s.comprovante_enviado_em.strftime('%d/%m/%Y %H:%M')}" if s.comprovante_enviado_em else ""
-                        st.download_button(
+                    from app.services.comprovantes import obter_comprovante_url, ler_comprovante
+                    url = obter_comprovante_url(s.comprovante_nome)
+                    nome_dl = s.comprovante_nome_original or s.comprovante_nome
+                    tamanho_kb = f" ({s.comprovante_tamanho // 1024} KB)" if s.comprovante_tamanho else ""
+                    enviado_em = f" — {s.comprovante_enviado_em.strftime('%d/%m/%Y %H:%M')}" if s.comprovante_enviado_em else ""
+                    
+                    if url:
+                        st.link_button(
                             label=f"📎 Baixar: {nome_dl}{tamanho_kb}{enviado_em}",
-                            data=btn_data,
-                            file_name=nome_dl,
-                            mime=mime_dl,
+                            url=url,
                             key=f"dl_comp_{s.id_sessao}"
                         )
                     else:
-                        st.caption("⚠️ Arquivo físico do comprovante ausente")
+                        btn_data = ler_comprovante(s.comprovante_nome)
+                        if btn_data is not None:
+                            mime_dl = s.comprovante_mime or "application/octet-stream"
+                            st.download_button(
+                                label=f"📎 Baixar: {nome_dl}{tamanho_kb}{enviado_em}",
+                                data=btn_data,
+                                file_name=nome_dl,
+                                mime=mime_dl,
+                                key=f"dl_comp_{s.id_sessao}"
+                            )
+                        else:
+                            st.caption("⚠️ Arquivo físico do comprovante ausente")
                     del_comp = st.checkbox("Excluir comprovante?", key=f"del_comp_{s.id_sessao}", disabled=fechado)
                 
                 comp_file = st.file_uploader("Enviar comprovante (PDF, Imagem)", type=["pdf", "png", "jpg", "jpeg"], key=f"comp_u_{s.id_sessao}", disabled=fechado)

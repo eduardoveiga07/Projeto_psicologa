@@ -4,7 +4,7 @@ from app.db.models import Usuario
 
 
 def gerar_hash(senha: str) -> str:
-    return bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(senha.encode(), bcrypt.gensalt(rounds=12)).decode()
 
 
 def verificar_senha(senha: str, senha_hash: str) -> bool:
@@ -22,12 +22,21 @@ from datetime import datetime, timedelta
 
 def autenticar(db, username: str, senha: str):
     """Retorna (Usuario, status) se credenciais validas, senao (None, erro_msg)."""
+    import time
+    import secrets
+
+    def _delay_falha():
+        # Atraso aleatório entre 1.0 e 2.0 segundos para mitigar timing attacks e brute force
+        time.sleep(1.0 + secrets.SystemRandom().uniform(0.0, 1.0))
+
     if not username:
+        _delay_falha()
         return None, "Credenciais inválidas."
     
     u = db.query(Usuario).filter(
         Usuario.username == username, Usuario.ativo == True).first()  # noqa: E712
     if not u:
+        _delay_falha()
         return None, "Credenciais inválidas."
         
     # Verifica se o usuário está sob bloqueio temporário
@@ -47,6 +56,7 @@ def autenticar(db, username: str, senha: str):
         return u, "ok"
     else:
         # Falha: incrementa tentativas
+        _delay_falha()
         u.tentativas_login += 1
         if u.tentativas_login >= 5:
             u.bloqueado_ate = datetime.now() + timedelta(minutes=15)

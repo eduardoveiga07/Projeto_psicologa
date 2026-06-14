@@ -1,8 +1,10 @@
-"""Envio de email via SMTP. Se nao configurado, mostra na tela (modo dev)."""
 import os, smtplib, secrets
 from email.message import EmailMessage
 from datetime import datetime, timedelta
 from app.db.models import Usuario
+from app.services.logger import get_logger
+
+logger = get_logger("email_srv")
 
 
 def _smtp_configurado() -> bool:
@@ -20,11 +22,12 @@ def enviar_email(destino: str, assunto: str, corpo: str) -> tuple:
     msg.set_content(corpo)
     try:
         with smtplib.SMTP_SSL(os.getenv("SMTP_HOST"),
-                              int(os.getenv("SMTP_PORT", "465"))) as s:
+                               int(os.getenv("SMTP_PORT", "465"))) as s:
             s.login(os.getenv("SMTP_USER"), os.getenv("SMTP_PASS"))
             s.send_message(msg)
         return True, "Email enviado."
-    except Exception:
+    except Exception as e:
+        logger.error(f"Falha ao enviar email para {destino}: {e}", exc_info=True)
         return False, "Falha ao enviar email."
 
 

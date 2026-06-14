@@ -4,6 +4,10 @@ from app.db.models import Paciente, AgendaSessao, StatusPresenca, StatusPagament
 from sqlalchemy import func
 
 
+from app.services.logger import get_logger
+logger = get_logger("notificacoes")
+
+
 def obter_notificacoes(db) -> list:
     """Busca pendências críticas no banco de dados e retorna uma lista de dicionários formatados para o usuário."""
     notifs = []
@@ -24,8 +28,8 @@ def obter_notificacoes(db) -> list:
                 "detalhe": f"Em {err.quando.strftime('%d/%m %H:%M')}: {err.detalhe[:100]}",
                 "nivel": "danger"
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Erro ao obter notificações de falhas técnicas: {e}", exc_info=True)
 
     # 2. Backup atrasado (> 28 horas)
     limite_backup = agora_dt - timedelta(hours=28)
@@ -43,8 +47,8 @@ def obter_notificacoes(db) -> list:
                 "detalhe": det,
                 "nivel": "warning"
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Erro ao obter notificações de backup: {e}", exc_info=True)
 
     # 3. Contrato sem horário ou sem contrato (para pacientes ativos)
     try:
@@ -58,8 +62,8 @@ def obter_notificacoes(db) -> list:
                     "detalhe": "Cadastrado como ativo mas sem horário de atendimento configurado.",
                     "nivel": "info"
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Erro ao obter notificações de pacientes sem horário: {e}", exc_info=True)
 
     # 4. Sessões sem pagamento (realizadas/cancelou em cima mas pendentes/atrasadas)
     try:
@@ -76,7 +80,7 @@ def obter_notificacoes(db) -> list:
                 "detalhe": f"Existem {len(sessoes_abertas)} sessões passadas que constam como pendentes/atrasadas.",
                 "nivel": "warning"
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Erro ao obter notificações de sessões sem pagamento: {e}", exc_info=True)
 
     return notifs

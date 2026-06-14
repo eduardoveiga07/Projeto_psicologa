@@ -1,5 +1,6 @@
-"""Trilha de auditoria. Registra eventos criticos sem dados sensiveis."""
-from app.db.models import Auditoria
+from app.services.logger import get_logger
+
+logger = get_logger("auditoria")
 
 
 def registrar(db, usuario: str, acao: str, detalhe: str = "", ip: str = ""):
@@ -8,5 +9,9 @@ def registrar(db, usuario: str, acao: str, detalhe: str = "", ip: str = ""):
         db.add(Auditoria(usuario=usuario or "?", acao=acao,
                          detalhe=detalhe[:300], ip=ip or "?"))
         db.commit()
-    except Exception:
-        db.rollback()  # auditoria nunca pode derrubar a operacao principal
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.error(f"Falha ao salvar log de auditoria (usuario={usuario}, acao={acao}): {e}", exc_info=True)

@@ -22,7 +22,7 @@ def obter_horario_inicio_fim(paciente, dia_nome):
                     hi, mi = map(int, ini.split(":"))
                     hf, mf = map(int, fim.split(":"))
                     return time(hi, mi), time(hf, mf)
-                except Exception:
+                except (ValueError, AttributeError):
                     pass
     return None, None
 

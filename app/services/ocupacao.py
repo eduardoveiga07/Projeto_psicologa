@@ -14,7 +14,7 @@ def _para_min(faixa: str) -> tuple:
         hi, mi = map(int, ini.split(":"))
         hf, mf = map(int, fim.split(":"))
         return (hi * 60 + mi, hf * 60 + mf)
-    except Exception:
+    except (ValueError, AttributeError):
         return (0, 0)
 
 
@@ -29,7 +29,7 @@ def _ocorrencias(ano: int, mes: int, dia_nome: str) -> list:
     """Lista de datas no mes onde cai 'dia_nome'."""
     try:
         idx = _DIA_IDX[DiaSemana(dia_nome)]
-    except Exception:
+    except (ValueError, KeyError):
         return []
     _, td = calendar.monthrange(ano, mes)
     return [date(ano, mes, d) for d in range(1, td + 1)

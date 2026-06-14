@@ -13,7 +13,7 @@ class SegredosMaskFilter(logging.Filter):
                 try:
                     record.msg = self.mascarar(str(record.msg))
                 except Exception:
-                    pass
+                    record.msg = "<mensagem_nao_conversivel>"
         if record.args:
             novos_args = []
             for arg in record.args:

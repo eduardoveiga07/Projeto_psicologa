@@ -58,5 +58,5 @@ def obter_telas_permitidas(perfil: str) -> list[str]:
         return ["Minha conta", "Pagamentos", "Financeiro"]
     elif perfil == Perfil.PROGRAMADOR.value:
         return todas
-    return todas
+    return []
 

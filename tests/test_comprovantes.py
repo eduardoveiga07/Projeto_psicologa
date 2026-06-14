@@ -6,7 +6,7 @@ import tempfile
 from io import BytesIO
 from datetime import datetime
 
-sys.path.append('c:/Users/eduar/Downloads/projeto_consultorio')
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.services.comprovantes import (
     validar_upload, salvar_comprovante, deletar_comprovante,
@@ -91,12 +91,19 @@ class ValidarUploadTest(unittest.TestCase):
 class SalvarComprovanteDiscoTest(unittest.TestCase):
     """Testa o ciclo completo de salvar → verificar → deletar no filesystem."""
 
-    def test_ciclo_salvar_e_deletar(self):
-        # Sobrescreve UPLOAD_DIR para usar diretório temporário
+    def setUp(self):
         import app.services.comprovantes as svc
-        tmpdir = tempfile.mkdtemp()
-        svc.UPLOAD_DIR = tmpdir
+        self.original_upload_dir = svc.UPLOAD_DIR
+        self.tmpdir = tempfile.mkdtemp()
+        svc.UPLOAD_DIR = self.tmpdir
 
+    def tearDown(self):
+        import app.services.comprovantes as svc
+        svc.UPLOAD_DIR = self.original_upload_dir
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_ciclo_salvar_e_deletar(self):
         arq = _MockFile("nota_fiscal.pdf", b"%PDF-1.4 conteudo real")
         meta = salvar_comprovante(arq, "despesa", 42)
 
@@ -122,6 +129,7 @@ class SalvarComprovanteDiscoTest(unittest.TestCase):
         removido = deletar_comprovante(meta["nome"])
         self.assertTrue(removido)
         self.assertFalse(os.path.exists(caminho))
+
 
 
 class MetadadosORMTest(unittest.TestCase):

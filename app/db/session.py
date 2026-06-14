@@ -13,10 +13,11 @@ def _get_database_url() -> str:
     e caindo em variável de ambiente como fallback (Docker/local)."""
     try:
         import streamlit as st
+        # st.secrets pode lançar FileNotFoundError ou KeyError fora do Streamlit
         url = st.secrets.get("DATABASE_URL", None)
         if url:
             return url
-    except Exception:
+    except (ImportError, FileNotFoundError, KeyError, AttributeError):
         pass
     return os.getenv(
         "DATABASE_URL",
@@ -27,41 +28,29 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True, poolclass=NullPool)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
-def _migrar_colunas():
-    """Adiciona colunas novas que faltam em tabelas ja existentes.
-    Evita erro quando o modelo muda sem recriar o banco."""
-    from sqlalchemy import inspect, text
-    insp = inspect(engine)
-    existentes = {t: {c["name"]: c for c in insp.get_columns(t)}
-                  for t in insp.get_table_names()}
-    with engine.begin() as conn:
-        for tabela in Base.metadata.tables.values():
-            if tabela.name not in existentes:
-                continue
-            for col in tabela.columns:
-                if col.name not in existentes[tabela.name]:
-                    tipo = col.type.compile(engine.dialect)
-                    logger.info(f"Detectada coluna nova: {col.name} na tabela {tabela.name}. Executando migracao...")
-                    conn.execute(text(
-                        f'ALTER TABLE {tabela.name} '
-                        f'ADD COLUMN IF NOT EXISTS {col.name} {tipo}'))
-                else:
-                    # Amplia VARCHAR se o modelo agora exige mais espaco.
-                    novo = getattr(col.type, "length", None)
-                    atual = existentes[tabela.name][col.name].get("type")
-                    velho = getattr(atual, "length", None)
-                    if novo and velho and novo > velho:
-                        logger.info(f"Ampliando VARCHAR da coluna {col.name} na tabela {tabela.name} de {velho} para {novo}...")
-                        conn.execute(text(
-                            f'ALTER TABLE {tabela.name} '
-                            f'ALTER COLUMN {col.name} TYPE VARCHAR({novo})'))
-
-
 def criar_tabelas():
-    """Cria tabelas e adiciona colunas faltantes. Executa migrações do Alembic."""
+    """Executa a conexão e roda migrações do Alembic programaticamente no boot."""
     import time
+    from sqlalchemy import text
     
-    # Executa migrações do Alembic de forma automática no boot
+    # 1. Loop de verificação de conexão com retry (para desenvolvimento/docker local)
+    conexao_ok = False
+    for i in range(15):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            conexao_ok = True
+            break
+        except Exception as e:
+            logger.warning(f"Tentativa {i+1}/15 de conexao com o banco falhou. Erro: {e}. Aguardando 2s...")
+            time.sleep(2)
+            
+    if not conexao_ok:
+        logger.critical("Erro crítico: Não foi possível conectar ao banco de dados após 15 tentativas.")
+        raise ConnectionError("Banco de dados indisponível.")
+
+    # 2. Execução das migrações do Alembic no boot
+    ambiente = os.getenv("AMBIENTE", "desenvolvimento").lower()
     try:
         logger.info("Executando migrações do Alembic (alembic upgrade head)...")
         from alembic.config import Config
@@ -70,38 +59,12 @@ def criar_tabelas():
         command.upgrade(alembic_cfg, "head")
         logger.info("Migrações do Alembic aplicadas com sucesso.")
     except Exception as e:
-        logger.error(f"Erro ao rodar migrações do Alembic programaticamente: {e}. Continuando boot...", exc_info=True)
-
-    ambiente = os.getenv("AMBIENTE", "desenvolvimento").lower()
-    if ambiente == "producao":
-        logger.info("Ambiente de PRODUCAO detectado. Inicializacao automatica SQLAlchemy bypassada (Alembic assumiu).")
-        return
-        
-    logger.info("Iniciando a verificacao/criacao das tabelas do banco de dados...")
-    for i in range(15):
-        try:
-            Base.metadata.create_all(engine)
-            _migrar_colunas()
-            # Drop da constraint antiga de duração fixa (1h)
-            try:
-                with engine.begin() as conn:
-                    conn.exec_driver_sql(
-                        "ALTER TABLE agenda_sessoes "
-                        "DROP CONSTRAINT IF EXISTS ck_duracao_1h")
-            except Exception:
-                pass
-            logger.info("Banco de dados inicializado e migrado com sucesso.")
-            return
-        except Exception as e:
-            logger.warning(f"Tentativa {i+1}/15 de conexao com o banco falhou. Erro: {e}. Aguardando 2s...")
-            time.sleep(2)
-    try:
-        Base.metadata.create_all(engine)
-        _migrar_colunas()
-        logger.info("Banco de dados inicializado e migrado com sucesso apos tentativas de fallback.")
-    except Exception as e:
-        logger.critical(f"Erro critico: Nao foi possivel conectar ao banco de dados apos 15 tentativas. Detalhes: {e}", exc_info=True)
-        raise e
+        logger.error(f"Erro ao rodar migrações do Alembic: {e}", exc_info=True)
+        if ambiente == "producao":
+            logger.critical("Erro crítico em PRODUCAO: Alembic falhou. Interrompendo boot do app.")
+            raise e
+        else:
+            logger.warning("Ambiente de desenvolvimento. Continuando boot apesar da falha de migração...")
 
 
 def get_session():

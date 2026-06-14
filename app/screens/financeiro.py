@@ -498,25 +498,30 @@ def tela_financeiro():
         c1.write(f"{cor} **{d.descricao}**{fixa_tag} — {fmt_br(d.valor)} — "
                  f"venc. {d.data_vencimento.strftime('%d/%m/%Y')} — {status}")
         
-        # Download do Comprovante
+        # Download do Comprovante (camada de storage abstrata)
         if d.comprovante_nome:
-            import os
-            from app.services.comprovantes import obter_comprovante_caminho
-            caminho = obter_comprovante_caminho(d.comprovante_nome)
-            if caminho and os.path.exists(caminho):
-                with open(caminho, "rb") as f:
-                    btn_data = f.read()
-                nome_dl = d.comprovante_nome_original or d.comprovante_nome
-                mime_dl = d.comprovante_mime or "application/octet-stream"
-                c_comp.download_button(
+            from app.services.comprovantes import obter_comprovante_url, ler_comprovante
+            url = obter_comprovante_url(d.comprovante_nome)
+            if url:
+                c_comp.link_button(
                     label="📎 Comprovante",
-                    data=btn_data,
-                    file_name=nome_dl,
-                    mime=mime_dl,
+                    url=url,
                     key=f"dl_comp_{d.id_despesa}"
                 )
             else:
-                c_comp.write("⚠️ Arquivo ausente")
+                btn_data = ler_comprovante(d.comprovante_nome)
+                if btn_data is not None:
+                    nome_dl = d.comprovante_nome_original or d.comprovante_nome
+                    mime_dl = d.comprovante_mime or "application/octet-stream"
+                    c_comp.download_button(
+                        label="📎 Comprovante",
+                        data=btn_data,
+                        file_name=nome_dl,
+                        mime=mime_dl,
+                        key=f"dl_comp_{d.id_despesa}"
+                    )
+                else:
+                    c_comp.write("⚠️ Arquivo ausente")
         else:
             c_comp.write("—")
 

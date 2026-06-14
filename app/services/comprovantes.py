@@ -77,7 +77,11 @@ Responsabilidades:
 import os
 import re
 import unicodedata
+import uuid
 from datetime import datetime
+from app.services.logger import get_logger
+
+logger = get_logger("comprovantes")
 
 # Diretório base para armazenamento local
 UPLOAD_DIR = os.path.abspath(
@@ -126,16 +130,13 @@ def validar_upload(uploaded_file) -> None:
     if not uploaded_file:
         return
 
-    # Valida extensão
-    _, ext = os.path.splitext(uploaded_file.name.lower())
-    if ext not in EXTENSOES_PERMITIDAS:
-        raise ComprovantesError(
-            f"Tipo de arquivo não permitido: '{ext}'. "
-            f"Aceitos: PDF, PNG, JPG/JPEG."
-        )
-
-    # Valida tamanho
-    dados = uploaded_file.getbuffer()
+    # 1. Valida tamanho do arquivo antes de ler os magic bytes (prevenção DoS)
+    try:
+        dados = uploaded_file.getbuffer()
+    except AttributeError:
+        # Fallback caso seja um file-like object genérico nos testes
+        dados = uploaded_file.read() if hasattr(uploaded_file, "read") else b""
+        
     tamanho = len(dados)
     if tamanho > TAMANHO_MAXIMO_BYTES:
         mb = tamanho / (1024 * 1024)
@@ -145,6 +146,34 @@ def validar_upload(uploaded_file) -> None:
 
     if tamanho == 0:
         raise ComprovantesError("Arquivo enviado está vazio.")
+
+    # 2. Valida extensão
+    _, ext = os.path.splitext(uploaded_file.name.lower())
+    if ext not in EXTENSOES_PERMITIDAS:
+        raise ComprovantesError(
+            f"Tipo de arquivo não permitido: '{ext}'. "
+            f"Aceitos: PDF, PNG, JPG/JPEG."
+        )
+
+    # 3. Valida MIME informado pelo navegador (Streamlit UploadedFile.type)
+    if hasattr(uploaded_file, "type") and uploaded_file.type:
+        mime_enviado = uploaded_file.type.lower()
+        mime_esperado = MIME_TYPES_PERMITIDOS.get(ext)
+        if mime_esperado and mime_enviado != mime_esperado:
+            # Tolerância para JPG/JPEG com image/jpg vs image/jpeg
+            if not (ext in {".jpg", ".jpeg"} and mime_enviado in {"image/jpeg", "image/jpg"}):
+                raise ComprovantesError(
+                    f"MIME type informado '{mime_enviado}' incompatível com a extensão '{ext}'."
+                )
+
+    # 4. Valida assinatura do arquivo (Magic Bytes)
+    header = bytes(dados[:8])
+    if ext == ".pdf" and not header.startswith(b"%PDF"):
+        raise ComprovantesError("Assinatura de arquivo PDF inválida.")
+    elif ext == ".png" and not header.startswith(b"\x89PNG"):
+        raise ComprovantesError("Assinatura de arquivo PNG inválida.")
+    elif ext in {".jpg", ".jpeg"} and not header.startswith(b"\xff\xd8\xff"):
+        raise ComprovantesError("Assinatura de arquivo JPEG/JPG inválida.")
 
 
 def salvar_comprovante(uploaded_file, tipo: str, registro_id: int) -> dict:
@@ -169,14 +198,19 @@ def salvar_comprovante(uploaded_file, tipo: str, registro_id: int) -> dict:
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-    # Constrói nome interno seguro: tipo_id_timestamp_nome-original-sanitizado.ext
+    # Constrói nome interno seguro: tipo_id_timestamp_uuid_nome-original-sanitizado.ext
     _, ext = os.path.splitext(uploaded_file.name.lower())
-    timestamp = int(datetime.now().timestamp())
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    uuid_part = uuid.uuid4().hex[:8]
     nome_sanitizado = _sanitizar_nome(uploaded_file.name)
-    nome_arquivo = f"{tipo}_{registro_id}_{timestamp}_{nome_sanitizado}"
+    nome_arquivo = f"{tipo}_{registro_id}_{timestamp}_{uuid_part}_{nome_sanitizado}"
     caminho_completo = os.path.join(UPLOAD_DIR, nome_arquivo)
 
-    dados = uploaded_file.getbuffer()
+    try:
+        dados = uploaded_file.getbuffer()
+    except AttributeError:
+        dados = uploaded_file.read() if hasattr(uploaded_file, "read") else b""
+
     with open(caminho_completo, "wb") as f:
         f.write(dados)
 
@@ -200,6 +234,41 @@ def obter_comprovante_caminho(nome_arquivo: str) -> str:
     return os.path.join(UPLOAD_DIR, nome_arquivo)
 
 
+def ler_comprovante(nome_arquivo: str) -> bytes | None:
+    """Lê e retorna o conteúdo do comprovante como bytes.
+
+    Retorna None se o arquivo não existir ou se houver erro ao ler.
+    """
+    if not nome_arquivo:
+        return None
+    caminho = obter_comprovante_caminho(nome_arquivo)
+    if caminho and os.path.exists(caminho):
+        try:
+            with open(caminho, "rb") as f:
+                return f.read()
+        except OSError as e:
+            logger.error(f"Erro ao ler comprovante '{nome_arquivo}' do disco: {e}", exc_info=True)
+    return None
+
+
+def existe_comprovante(nome_arquivo: str) -> bool:
+    """Retorna True se o arquivo do comprovante existe fisicamente no storage."""
+    if not nome_arquivo:
+        return False
+    caminho = obter_comprovante_caminho(nome_arquivo)
+    return bool(caminho and os.path.exists(caminho))
+
+
+def obter_comprovante_url(nome_arquivo: str) -> str | None:
+    """Retorna a URL pública do comprovante para download.
+
+    No storage local não geramos URL porque o Streamlit não serve arquivos estáticos
+    arbitrários por padrão; quando migrar para S3/Supabase, esta função retornará
+    a URL pré-assinada (pre-signed URL) temporária com TTL correspondente.
+    """
+    return None
+
+
 def deletar_comprovante(nome_arquivo: str) -> bool:
     """Remove o arquivo de comprovante do disco se ele existir.
 
@@ -213,8 +282,10 @@ def deletar_comprovante(nome_arquivo: str) -> bool:
         try:
             os.remove(caminho)
             return True
-        except Exception:
-            pass
+        except FileNotFoundError:
+            return False
+        except OSError as e:
+            logger.error(f"Erro de permissão ou de E/S ao tentar remover o arquivo '{nome_arquivo}': {e}", exc_info=True)
     return False
 
 
