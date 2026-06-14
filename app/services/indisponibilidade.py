@@ -16,7 +16,8 @@ def horarios_bloqueados(db, d: date) -> set:
     rs = db.query(Indisponibilidade).filter(
         Indisponibilidade.data == d,
         Indisponibilidade.dia_todo == False).all()  # noqa: E712
-    return {r.horario for r in rs if r.horario}
+    return {f"{r.hora_inicio.strftime('%H:%M')} - {r.hora_fim.strftime('%H:%M')}"
+            for r in rs if r.hora_inicio and r.hora_fim}
 
 
 def agrupar_em_ranges(regs: list) -> list:
@@ -34,7 +35,10 @@ def agrupar_em_ranges(regs: list) -> list:
                "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
 
     def chave(r):
-        return (r.motivo.value, r.dia_todo, r.horario or "", r.observacao or "")
+        h_str = ""
+        if not r.dia_todo and r.hora_inicio and r.hora_fim:
+            h_str = f"{r.hora_inicio.strftime('%H:%M')} - {r.hora_fim.strftime('%H:%M')}"
+        return (r.motivo.value, r.dia_todo, h_str, r.observacao or "")
 
     # Agrupa todos com a mesma chave
     buckets = {}
@@ -77,9 +81,12 @@ def agrupar_em_ranges(regs: list) -> list:
                 dia_sem = None
                 sub = [lista[i]]
                 j = i + 1
+            h_str = ""
+            if not sub[0].dia_todo and sub[0].hora_inicio and sub[0].hora_fim:
+                h_str = f"{sub[0].hora_inicio.strftime('%H:%M')} - {sub[0].hora_fim.strftime('%H:%M')}"
             g = {"ini": sub[0].data, "fim": sub[-1].data,
                  "motivo": sub[0].motivo.value, "dia_todo": sub[0].dia_todo,
-                 "horario": sub[0].horario, "obs": sub[0].observacao,
+                 "horario": h_str, "obs": sub[0].observacao,
                  "ids": [r.id_indisp for r in sub], "padrao": padrao,
                  "dia_semana": dia_sem}
             grupos.append(g)

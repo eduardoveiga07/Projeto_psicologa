@@ -230,7 +230,10 @@ def tela_cadastro():
         ind = db().query(Indisponibilidade).filter(
             Indisponibilidade.data == data_av).all()
         bloq_dia_todo = any(r.dia_todo for r in ind)
-        bloq_horarios = [r.horario for r in ind if not r.dia_todo and r.horario]
+        bloq_horarios = []
+        for r in ind:
+            if not r.dia_todo and r.hora_inicio and r.hora_fim:
+                bloq_horarios.append(f"{r.hora_inicio.strftime('%H:%M')} - {r.hora_fim.strftime('%H:%M')}")
         if fer:
             st.error(f"🔴 {data_av.strftime('%d/%m/%Y')} é feriado ({fer[1]}): {fer[0]}.")
         if bloq_dia_todo:

@@ -1,7 +1,7 @@
 """Modelagem de dados (SQLAlchemy) - Gestao Consultorio Psicologia. Banco: PostgreSQL."""
 import uuid, enum
 from sqlalchemy import (Column, String, Integer, Numeric, DateTime, Date, Enum,
-                        ForeignKey, Boolean, Text, UniqueConstraint, CheckConstraint, func)
+                        ForeignKey, Boolean, Text, Time, UniqueConstraint, CheckConstraint, func)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -216,7 +216,7 @@ class Auditoria(Base):
     quando = Column(DateTime, server_default=func.now())
     usuario = Column(String(50))      # quem
     acao = Column(String(120))        # ex: LOGIN, EDITOU_PACIENTE
-    detalhe = Column(String(300))     # descricao sem dados sensiveis
+    detalhe = Column(Text)            # descricao sem dados sensiveis
     ip = Column(String(45))           # IPv4/IPv6
 
 
@@ -233,9 +233,18 @@ class Indisponibilidade(Base):
     id_indisp = Column(Integer, primary_key=True, autoincrement=True)
     data = Column(Date, nullable=False)
     dia_todo = Column(Boolean, default=True)
-    horario = Column(String(13), nullable=True)  # se nao for dia todo
+    hora_inicio = Column(Time, nullable=True)
+    hora_fim = Column(Time, nullable=True)
     motivo = Column(Enum(MotivoIndisp), nullable=False, default=MotivoIndisp.OUTRO)
     observacao = Column(String(200), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(hora_inicio IS NULL AND hora_fim IS NULL) "
+            "OR (hora_inicio IS NOT NULL AND hora_fim IS NOT NULL AND hora_fim > hora_inicio)",
+            name="ck_indisp_horario"
+        ),
+    )
 
 
 class SistemaStatus(Base):

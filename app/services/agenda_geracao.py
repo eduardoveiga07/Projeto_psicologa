@@ -49,7 +49,13 @@ class AgendaGeracaoService:
         
         indisp_set = set()
         for r in indisps:
-            indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
+            if r.dia_todo:
+                val = "dia_todo"
+            elif r.hora_inicio and r.hora_fim:
+                val = f"{r.hora_inicio.strftime('%H:%M')} - {r.hora_fim.strftime('%H:%M')}"
+            else:
+                val = ""
+            indisp_set.add((r.data, val))
 
         # Feriados por ano no range
         feriados = {}

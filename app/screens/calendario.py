@@ -44,8 +44,11 @@ def tela_calendario():
                 else:
                     motivo_label = r.motivo.value
                     obs_extra = r.observacao or ""
+                hr_str = ""
+                if not r.dia_todo and r.hora_inicio and r.hora_fim:
+                    hr_str = f" ({r.hora_inicio.strftime('%H:%M')} - {r.hora_fim.strftime('%H:%M')})"
                 desc = (motivo_label +
-                        ("" if r.dia_todo else f" ({r.horario})") +
+                        hr_str +
                         (f" — {obs_extra}" if obs_extra else ""))
                 eventos.append({"Data": r.data,
                                 "Tipo": "Bloqueio (consultório)",
@@ -195,9 +198,15 @@ def tela_calendario():
                                     d.weekday()]]
                             else:
                                 hr = horario_geral
+                            h_ini, h_fim = None, None
+                            if not dia_todo and hr:
+                                from datetime import datetime
+                                das, ate = hr.split(" - ")
+                                h_ini = datetime.strptime(das, "%H:%M").time()
+                                h_fim = datetime.strptime(ate, "%H:%M").time()
                             db().add(Indisponibilidade(
                                 data=d, dia_todo=dia_todo,
-                                horario=hr,
+                                hora_inicio=h_ini, hora_fim=h_fim,
                                 motivo=MotivoIndisp(motivo),
                                 observacao=obs_final))
                             from app.services.agenda_geracao import AgendaGeracaoService
@@ -343,9 +352,15 @@ def tela_calendario():
                                     hr_d = wd_map[d.weekday()]
                                 else:
                                     hr_d = nv_hr
+                                h_ini, h_fim = None, None
+                                if not nv_diatd and hr_d:
+                                    from datetime import datetime
+                                    das, ate = hr_d.split(" - ")
+                                    h_ini = datetime.strptime(das, "%H:%M").time()
+                                    h_fim = datetime.strptime(ate, "%H:%M").time()
                                 db().add(Indisponibilidade(
                                     data=d, dia_todo=nv_diatd,
-                                    horario=hr_d,
+                                    hora_inicio=h_ini, hora_fim=h_fim,
                                     motivo=MotivoIndisp(nv_mot),
                                     observacao=nv_obs))
                                 from app.services.agenda_geracao import AgendaGeracaoService

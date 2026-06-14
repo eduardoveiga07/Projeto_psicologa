@@ -40,10 +40,19 @@ class SegredosMaskFilter(logging.Filter):
         return texto
 
 # Configura o formato do log
-formatter = logging.Formatter(
-    "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)d] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
+ambiente = os.getenv("AMBIENTE", "desenvolvimento").lower()
+if ambiente == "producao":
+    from pythonjsonlogger import jsonlogger
+    formatter = jsonlogger.JsonFormatter(
+        "%(asctime)s %(levelname)s %(name)s %(lineno)d %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+else:
+    formatter = logging.Formatter(
+        "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)d] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
 
 # Configura o Logger raiz para a aplicação
 logger = logging.getLogger("consultorio_tecnico")

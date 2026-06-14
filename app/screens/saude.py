@@ -115,15 +115,7 @@ def tela_saude():
                          value=conteudo_log, 
                          height=300, 
                          disabled=True)
-            
-            # Botão para limpar log técnico se for Programador
-            if st.session_state.get("perfil") == "Programador":
-                if st.button("Limpar Arquivo de Logs Técnicos"):
-                    with open(log_file_path, "w", encoding="utf-8") as f:
-                        f.write("")
-                    registrar(s, st.session_state.username, "LOG_TECNICO_LIMPO", "sucesso")
-                    flash("Arquivo de logs técnicos reiniciado.", "success")
-                    st.rerun()
+            pass
         except Exception as e:
             st.error(f"Erro ao ler arquivo de logs técnicos: {e}")
     else:

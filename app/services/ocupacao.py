@@ -193,7 +193,13 @@ def datas_paciente_no_mes(p, ano: int, mes: int,
             Indisponibilidade.data <= date(ano, mes,
                 calendar.monthrange(ano, mes)[1])).all()
         for r in indisps:
-            indisp_set.add((r.data, "dia_todo" if r.dia_todo else r.horario))
+            if r.dia_todo:
+                val = "dia_todo"
+            elif r.hora_inicio and r.hora_fim:
+                val = f"{r.hora_inicio.strftime('%H:%M')} - {r.hora_fim.strftime('%H:%M')}"
+            else:
+                val = ""
+            indisp_set.add((r.data, val))
 
     if historico is None:
         historico = db.query(ContratoHistorico).filter(

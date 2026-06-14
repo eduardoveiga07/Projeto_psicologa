@@ -148,5 +148,81 @@ class DbConstraintsTest(unittest.TestCase):
         with self.assertRaises(IntegrityError):
             self.session.commit()
 
+    def test_indisponibilidade_ambos_null_passa(self):
+        # Ambos NULL (dia inteiro) -> passa
+        from datetime import time
+        from app.db.models import Indisponibilidade, MotivoIndisp
+        ind = Indisponibilidade(
+            data=date(2026, 6, 12),
+            dia_todo=True,
+            hora_inicio=None,
+            hora_fim=None,
+            motivo=MotivoIndisp.OUTRO
+        )
+        self.session.add(ind)
+        self.session.commit()
+        self.assertIsNotNone(ind.id_indisp)
+
+    def test_indisponibilidade_ambos_validos_passa(self):
+        # Ambos válidos (fim > início) -> passa
+        from datetime import time
+        from app.db.models import Indisponibilidade, MotivoIndisp
+        ind = Indisponibilidade(
+            data=date(2026, 6, 12),
+            dia_todo=False,
+            hora_inicio=time(13, 0),
+            hora_fim=time(14, 0),
+            motivo=MotivoIndisp.OUTRO
+        )
+        self.session.add(ind)
+        self.session.commit()
+        self.assertIsNotNone(ind.id_indisp)
+
+    def test_indisponibilidade_apenas_inicio_falha(self):
+        # Apenas hora_inicio setada -> falha
+        from datetime import time
+        from app.db.models import Indisponibilidade, MotivoIndisp
+        ind = Indisponibilidade(
+            data=date(2026, 6, 12),
+            dia_todo=False,
+            hora_inicio=time(13, 0),
+            hora_fim=None,
+            motivo=MotivoIndisp.OUTRO
+        )
+        self.session.add(ind)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_indisponibilidade_apenas_fim_falha(self):
+        # Apenas hora_fim setada -> falha
+        from datetime import time
+        from app.db.models import Indisponibilidade, MotivoIndisp
+        ind = Indisponibilidade(
+            data=date(2026, 6, 12),
+            dia_todo=False,
+            hora_inicio=None,
+            hora_fim=time(14, 0),
+            motivo=MotivoIndisp.OUTRO
+        )
+        self.session.add(ind)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_indisponibilidade_fim_menor_ou_igual_inicio_falha(self):
+        # hora_fim <= hora_inicio -> falha
+        from datetime import time
+        from app.db.models import Indisponibilidade, MotivoIndisp
+        ind = Indisponibilidade(
+            data=date(2026, 6, 12),
+            dia_todo=False,
+            hora_inicio=time(14, 0),
+            hora_fim=time(13, 0),
+            motivo=MotivoIndisp.OUTRO
+        )
+        self.session.add(ind)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
 if __name__ == "__main__":
     unittest.main()
+
