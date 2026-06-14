@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.screens.shared import (
     db, registrar, mostrar_flash, flash, Indisponibilidade, MotivoIndisp,
     DiaSemana, HORARIOS_INICIO, HORARIOS_FIM, ui_header
@@ -177,7 +177,7 @@ def tela_calendario():
                             obs_final = motivo_outro.strip()
                             if obs:
                                 obs_final += f" — {obs}"
-                        from datetime import timedelta
+
                         dias_idx = {"Segunda-feira":0,"Terça-feira":1,
                             "Quarta-feira":2,"Quinta-feira":3,
                             "Sexta-feira":4,"Sábado":5}
@@ -200,7 +200,7 @@ def tela_calendario():
                                 hr = horario_geral
                             h_ini, h_fim = None, None
                             if not dia_todo and hr:
-                                from datetime import datetime
+
                                 das, ate = hr.split(" - ")
                                 h_ini = datetime.strptime(das, "%H:%M").time()
                                 h_fim = datetime.strptime(ate, "%H:%M").time()
@@ -334,7 +334,6 @@ def tela_calendario():
                             for rid in g["ids"]:
                                 obj = db().query(Indisponibilidade).get(rid)
                                 if obj: db().delete(obj)
-                            from datetime import timedelta
                             wd_map = ({s["weekday"]: s["horario"]
                                        for s in nv_slots} if eh_multi
                                       else None)
@@ -354,7 +353,6 @@ def tela_calendario():
                                     hr_d = nv_hr
                                 h_ini, h_fim = None, None
                                 if not nv_diatd and hr_d:
-                                    from datetime import datetime
                                     das, ate = hr_d.split(" - ")
                                     h_ini = datetime.strptime(das, "%H:%M").time()
                                     h_fim = datetime.strptime(ate, "%H:%M").time()
