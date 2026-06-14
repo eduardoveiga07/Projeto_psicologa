@@ -17,7 +17,7 @@ from app.services.logger import get_logger
 logger = get_logger("login")
 
 
-def tela_login(cookie_controller=None):
+def tela_login():
     st.title("Gestão Consultório - Login")
     
     # Fluxo de Troca de Senha Obrigatória no Primeiro Acesso
