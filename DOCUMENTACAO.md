@@ -403,9 +403,16 @@ python -m unittest discover -s tests
 A suite inicial cobre regras puras de calendario, ocupacao de horarios e
 previsao financeira sem depender de PostgreSQL.
 
-## Backup e restauracao
+## Backup e restauração
 
-Os scripts operacionais em Python ficam em `scripts/` e fornecem criptografia simétrica forte via AES-256 (Fernet):
+### 1. Produção (Neon PITR)
+Na nuvem (ambiente de produção), a rotina de backups é totalmente delegada ao provedor **Neon PostgreSQL (serverless)**:
+- **Estratégia:** Point-in-Time Recovery (PITR) com backup contínuo transacional.
+- **Vantagem:** Evita a execução de dumps locais no container efêmero do Streamlit Cloud (preservando CPU e RAM do app) e contorna conflitos de versão de cliente PostgreSQL (`server version mismatch pg_dump` entre o Neon PG 16 e o cliente do container).
+- **Recuperação:** Realizada via painel do [Neon Console](https://console.neon.tech/), permitindo restaurar ou criar ramificações (branches) de dados para qualquer data/hora dos últimos 7 a 30 dias de histórico.
+
+### 2. Desenvolvimento Local (Scripts Auxiliares)
+Para ambientes de desenvolvimento local (Docker Compose), os scripts em `scripts/` continuam disponíveis e efetuam criptografia simétrica forte via AES-256 (Fernet):
 
 * **Geração de backup criptografado**:
   ```bash
@@ -420,7 +427,7 @@ Os scripts operacionais em Python ficam em `scripts/` e fornecem criptografia si
   python scripts/testar_restauracao.py
   ```
 
-Os arquivos criptografados gerados possuem extensão `.pgdump.enc` e a pasta `backups/` é ignorada no Git.
+Os backups gerados usam a chave `BACKUP_ENCRYPTION_KEY` definida nas variáveis de ambiente. Os arquivos gerados possuem a extensão `.pgdump.enc` e a pasta `backups/` é ignorada pelo Git.
 
 ## Variaveis de ambiente
 

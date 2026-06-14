@@ -31,59 +31,25 @@ class NotificacoesTest(unittest.TestCase):
     def tearDown(self):
         self.session.close()
 
-    def test_backup_atrasado(self):
-        # Sem backups -> deve notificar backup atrasado
-        notifs = obter_notificacoes(self.session)
-        backup_atrasado = [n for n in notifs if n["tipo"] == "backup_atrasado"]
-        self.assertEqual(len(backup_atrasado), 1)
-        self.assertIn("Nenhum backup", backup_atrasado[0]["detalhe"])
-
-        # Backup recente (há 2 horas) -> não deve notificar backup atrasado
-        self.session.add(SistemaStatus(
-            tipo="backup",
-            status="sucesso",
-            quando=datetime.now() - timedelta(hours=2),
-            detalhe="Backup efetuado com sucesso"
-        ))
-        self.session.commit()
-
-        notifs = obter_notificacoes(self.session)
-        backup_atrasado = [n for n in notifs if n["tipo"] == "backup_atrasado"]
-        self.assertEqual(len(backup_atrasado), 0)
-
-        # Backup antigo (há 30 horas) -> deve notificar backup atrasado
-        self.session.query(SistemaStatus).delete()
-        self.session.add(SistemaStatus(
-            tipo="backup",
-            status="sucesso",
-            quando=datetime.now() - timedelta(hours=30),
-            detalhe="Backup efetuado com sucesso"
-        ))
-        self.session.commit()
-
-        notifs = obter_notificacoes(self.session)
-        backup_atrasado = [n for n in notifs if n["tipo"] == "backup_atrasado"]
-        self.assertEqual(len(backup_atrasado), 1)
-
     def test_erro_tecnico_recente(self):
         # Sem falhas técnicas recentes -> sem notificações de erro
         notifs = obter_notificacoes(self.session)
         erros = [n for n in notifs if n["tipo"] == "erro_tecnico"]
         self.assertEqual(len(erros), 0)
 
-        # Falha técnica recente (há 1 dia) -> deve notificar erro
+        # Falha técnica recente (há 1 dia) -> deve notificar erro (tipo diferente de backup/teste_restauracao)
         self.session.add(SistemaStatus(
-            tipo="backup",
+            tipo="sincronizacao",
             status="falha",
             quando=datetime.now() - timedelta(days=1),
-            detalhe="Erro ao conectar no banco para backup"
+            detalhe="Erro ao sincronizar dados com servidor externo"
         ))
         self.session.commit()
 
         notifs = obter_notificacoes(self.session)
         erros = [n for n in notifs if n["tipo"] == "erro_tecnico"]
         self.assertEqual(len(erros), 1)
-        self.assertIn("Erro ao conectar", erros[0]["detalhe"])
+        self.assertIn("Erro ao sincronizar", erros[0]["detalhe"])
 
     def test_paciente_sem_horario(self):
         # Paciente ativo com horário e dias de semana -> não deve notificar

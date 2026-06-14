@@ -55,8 +55,6 @@ ul[role="listbox"] li:hover { background-color: #2e3340 !important; }
 @st.cache_resource
 def _bootstrap():
     criar_tabelas()
-    from app.services.scheduler import iniciar_agendador
-    iniciar_agendador()
     from app.auth.init_users import inicializar_usuarios
     inicializar_usuarios()
     # Migracao: garante 1 periodo de historico de contrato p/ pacientes existentes

@@ -13,12 +13,13 @@ def obter_notificacoes(db) -> list:
     notifs = []
     agora_dt = datetime.now()
 
-    # 1. Erro técnico recente (últimos 3 dias)
+    # 1. Erro técnico recente (últimos 3 dias) - ignorando backups/restaurações legados
     tres_dias_atras = agora_dt - timedelta(days=3)
     try:
         erros = db.query(SistemaStatus).filter(
             SistemaStatus.status == "falha",
-            SistemaStatus.quando >= tres_dias_atras
+            SistemaStatus.quando >= tres_dias_atras,
+            SistemaStatus.tipo.notin_(["backup", "teste_restauracao"])
         ).order_by(SistemaStatus.quando.desc()).all()
         for err in erros:
             notifs.append({
@@ -30,25 +31,6 @@ def obter_notificacoes(db) -> list:
             })
     except Exception as e:
         logger.error(f"Erro ao obter notificações de falhas técnicas: {e}", exc_info=True)
-
-    # 2. Backup atrasado (> 28 horas)
-    limite_backup = agora_dt - timedelta(hours=28)
-    try:
-        ultimo_backup = db.query(SistemaStatus).filter(
-            SistemaStatus.tipo == "backup",
-            SistemaStatus.status == "sucesso"
-        ).order_by(SistemaStatus.quando.desc()).first()
-        if not ultimo_backup or ultimo_backup.quando < limite_backup:
-            det = f"Último em: {ultimo_backup.quando.strftime('%d/%m %H:%M')}" if ultimo_backup else "Nenhum backup realizado ainda."
-            notifs.append({
-                "tipo": "backup_atrasado",
-                "icone": "⚠️",
-                "titulo": "Backup diário atrasado",
-                "detalhe": det,
-                "nivel": "warning"
-            })
-    except Exception as e:
-        logger.error(f"Erro ao obter notificações de backup: {e}", exc_info=True)
 
     # 3. Contrato sem horário ou sem contrato (para pacientes ativos)
     try:

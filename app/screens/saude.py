@@ -29,9 +29,15 @@ def tela_saude():
     except Exception as e:
         detalhes_db = f"Erro: {e}"
 
-    # 2. Busca informações de backups e restores
-    ult_backup = s.query(SistemaStatus).filter(SistemaStatus.tipo == "backup").order_by(SistemaStatus.quando.desc()).first()
-    ult_teste = s.query(SistemaStatus).filter(SistemaStatus.tipo == "teste_restauracao").order_by(SistemaStatus.quando.desc()).first()
+    # 2. Busca informações de backups e restores (apenas em desenvolvimento)
+    ambiente = os.getenv("AMBIENTE", "desenvolvimento").lower()
+    is_prod = (ambiente == "producao")
+
+    ult_backup = None
+    ult_teste = None
+    if not is_prod:
+        ult_backup = s.query(SistemaStatus).filter(SistemaStatus.tipo == "backup").order_by(SistemaStatus.quando.desc()).first()
+        ult_teste = s.query(SistemaStatus).filter(SistemaStatus.tipo == "teste_restauracao").order_by(SistemaStatus.quando.desc()).first()
 
     # 3. Busca última migração Alembic
     versao_alembic = "Desconhecida"
@@ -43,71 +49,86 @@ def tela_saude():
         versao_alembic = "Sem tabela de controle (Alembic não executado ou tabela ausente)"
 
     # Ambiente de execução e Versão
-    ambiente = os.getenv("AMBIENTE", "desenvolvimento").capitalize()
+    ambiente_label = ambiente.capitalize()
     versao_app = "1.1.0"
 
     # Seção de Métricas Principais (KPIs)
     col1, col2, col3 = st.columns(3)
     with col1:
         ui_kpi_card("Conexão do Banco", status_db, delta=detalhes_db)
-    with col2:
-        if ult_backup:
-            status_cor = "normal" if ult_backup.status == "sucesso" else "inverse"
-            det_bk = f"Status: {ult_backup.status.capitalize()} em {ult_backup.quando.strftime('%d/%m %H:%M')}"
-            ui_kpi_card("Último Backup", ult_backup.status.upper(), delta=det_bk, delta_color=status_cor)
-        else:
-            ui_kpi_card("Último Backup", "Nenhum realizado", delta="Nenhum log encontrado")
-    with col3:
-        if ult_teste:
-            status_cor = "normal" if ult_teste.status == "sucesso" else "inverse"
-            det_ts = f"Status: {ult_teste.status.capitalize()} em {ult_teste.quando.strftime('%d/%m %H:%M')}"
-            ui_kpi_card("Teste Restauração", ult_teste.status.upper(), delta=det_ts, delta_color=status_cor)
-        else:
-            ui_kpi_card("Teste Restauração", "Nenhum realizado", delta="Nenhum log encontrado")
+    
+    if is_prod:
+        with col2:
+            ui_kpi_card("Backups em Produção", "NATIVO / ATIVO", delta="Gerenciado automaticamente pelo Neon DB", delta_color="normal")
+        with col3:
+            ui_kpi_card("Recuperação (PITR)", "7 A 30 DIAS", delta="Restauração contínua via console.neon.tech", delta_color="normal")
+    else:
+        with col2:
+            if ult_backup:
+                status_cor = "normal" if ult_backup.status == "sucesso" else "inverse"
+                det_bk = f"Status: {ult_backup.status.capitalize()} em {ult_backup.quando.strftime('%d/%m %H:%M')}"
+                ui_kpi_card("Último Backup", ult_backup.status.upper(), delta=det_bk, delta_color=status_cor)
+            else:
+                ui_kpi_card("Último Backup", "Nenhum realizado", delta="Nenhum log encontrado")
+        with col3:
+            if ult_teste:
+                status_cor = "normal" if ult_teste.status == "sucesso" else "inverse"
+                det_ts = f"Status: {ult_teste.status.capitalize()} em {ult_teste.quando.strftime('%d/%m %H:%M')}"
+                ui_kpi_card("Teste Restauração", ult_teste.status.upper(), delta=det_ts, delta_color=status_cor)
+            else:
+                ui_kpi_card("Teste Restauração", "Nenhum realizado", delta="Nenhum log encontrado")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
     st.subheader("⚙️ Propriedades do Ambiente")
     cc1, cc2, cc3 = st.columns(3)
     cc1.metric("Versão da Aplicação", f"v{versao_app}")
-    cc2.metric("Ambiente de Execução", ambiente)
+    cc2.metric("Ambiente de Execução", ambiente_label)
     cc3.metric("Revisão Alembic (Head)", versao_alembic)
 
     st.write("---")
 
     # Ações manuais administrativas
-    st.subheader("⚡ Ações de Manutenção Manual")
-    ca1, ca2 = st.columns(2)
-    
-    if ca1.button("📁 Executar Backup Diário Agora", type="primary", use_container_width=True):
-        with st.spinner("Executando backup e criptografia do banco de dados..."):
-            executar_backup_diario()
-            registrar(s, st.session_state.username, "MANUAL_BACKUP", "sucesso")
-            flash("Backup manual executado com sucesso e log registrado.", "success")
-            st.rerun()
-
-    if ca2.button("🔍 Executar Teste de Restauração Agora", use_container_width=True):
-        with st.spinner("Descriptografando e testando integridade estrutural do dump..."):
-            executar_teste_restauracao()
-            registrar(s, st.session_state.username, "MANUAL_RESTORE_TEST", "sucesso")
-            flash("Teste manual de restauração executado. Veja o log do sistema abaixo.", "info")
-            st.rerun()
-
-    st.write("---")
-
-    # Histórico de Rotinas de Sistema
-    st.subheader("📋 Histórico das Rotinas de Sistema")
-    rotinas = s.query(SistemaStatus).order_by(SistemaStatus.quando.desc()).limit(20).all()
-    if not rotinas:
-        st.info("Nenhum log de rotina (backup/teste) registrado no banco ainda.")
+    st.subheader("⚡ Manutenção e Backups")
+    if is_prod:
+        st.info(
+            "💎 **Estratégia de Backups Automáticos Nativos (Neon PITR)**\n\n"
+            "Em produção, este aplicativo utiliza o banco de dados serverless **Neon**, que gerencia backups de forma nativa e contínua (Point-in-Time Recovery):\n"
+            "- **Backups Contínuos:** Cada transação e alteração do banco de dados é salva em tempo real. Você pode restaurar o banco para qualquer segundo exato dos últimos 7 dias (plano gratuito) ou até 30 dias (planos pagos).\n"
+            "- **Restauração Simples:** Acesse o painel do [Neon Console](https://console.neon.tech/), selecione seu projeto, vá em **Snapshots** ou **Branches**, escolha o ponto exato no tempo e restaure ou crie uma nova ramificação de testes instantaneamente.\n"
+            "- **Performance Preservada:** Não há execução de dumps locais pesados no Streamlit Cloud, prevenindo picos de consumo de RAM e CPU no app."
+        )
     else:
-        dados_tabela = [{
-            "Data/Hora": r.quando.strftime("%d/%m/%Y %H:%M:%S"),
-            "Rotina": r.tipo.upper().replace("_", " "),
-            "Resultado": r.status.upper(),
-            "Detalhes Técnicos": r.detalhe or ""
-        } for r in rotinas]
-        st.dataframe(dados_tabela, use_container_width=True)
+        ca1, ca2 = st.columns(2)
+        if ca1.button("📁 Executar Backup Diário Agora", type="primary", use_container_width=True):
+            with st.spinner("Executando backup e criptografia do banco de dados..."):
+                executar_backup_diario()
+                registrar(s, st.session_state.username, "MANUAL_BACKUP", "sucesso")
+                flash("Backup manual executado com sucesso e log registrado.", "success")
+                st.rerun()
+
+        if ca2.button("🔍 Executar Teste de Restauração Agora", use_container_width=True):
+            with st.spinner("Descriptografando e testando integridade estrutural do dump..."):
+                executar_teste_restauracao()
+                registrar(s, st.session_state.username, "MANUAL_RESTORE_TEST", "sucesso")
+                flash("Teste manual de restauração executado. Veja o log do sistema abaixo.", "info")
+                st.rerun()
+
+    if not is_prod:
+        st.write("---")
+        # Histórico de Rotinas de Sistema
+        st.subheader("📋 Histórico das Rotinas de Sistema")
+        rotinas = s.query(SistemaStatus).order_by(SistemaStatus.quando.desc()).limit(20).all()
+        if not rotinas:
+            st.info("Nenhum log de rotina (backup/teste) registrado no banco ainda.")
+        else:
+            dados_tabela = [{
+                "Data/Hora": r.quando.strftime("%d/%m/%Y %H:%M:%S"),
+                "Rotina": r.tipo.upper().replace("_", " "),
+                "Resultado": r.status.upper(),
+                "Detalhes Técnicos": r.detalhe or ""
+            } for r in rotinas]
+            st.dataframe(dados_tabela, use_container_width=True)
 
     st.write("---")
 

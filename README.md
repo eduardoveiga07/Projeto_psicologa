@@ -44,14 +44,26 @@ O Alembic usa `DATABASE_URL` quando configurado.
 Para banco ja existente criado pela versao antiga do app, faca backup e use
 `alembic stamp head` apenas depois de conferir que o schema esta equivalente.
 
-## Backup e restauracao
-Com Docker Compose rodando:
-```
-powershell -ExecutionPolicy Bypass -File scripts/backup_db.ps1
-powershell -ExecutionPolicy Bypass -File scripts/restore_db.ps1 -BackupFile backups/NOME_DO_ARQUIVO.dump
-```
+## Backup e restauração
 
-Os backups locais ficam em `backups/`, que nao e versionado pelo Git.
+### Produção (Nuvem)
+Em produção, a aplicação utiliza o banco de dados serverless **Neon**, que oferece **Point-in-Time Recovery (PITR)** nativo e automático:
+- **Backup Contínuo:** Cada transação no banco é salva em tempo real.
+- **Restauração:** Feita diretamente no painel do [Neon Console](https://console.neon.tech/), sob as abas **Snapshots** ou **Branches**, escolhendo o momento desejado dos últimos 7 dias (plano gratuito) até 30 dias (planos pagos) para restaurar ou criar uma base de testes instantânea.
+
+### Desenvolvimento Local (Docker)
+Para gerar ou restaurar backups do container local, execute os scripts auxiliares:
+```bash
+# Execução via PowerShell:
+powershell -ExecutionPolicy Bypass -File scripts/backup_db.ps1
+powershell -ExecutionPolicy Bypass -File scripts/restore_db.ps1 -BackupFile backups/NOME_DO_ARQUIVO.pgdump.enc
+```
+Ou rodando os scripts Python no host:
+```bash
+python scripts/backup_db.py
+python scripts/restaurar_db.py backups/NOME_DO_ARQUIVO.pgdump.enc
+```
+Os arquivos gerados são criptografados simetricamente usando a chave `BACKUP_ENCRYPTION_KEY` definida no `.env` e salvos no diretório local `backups/` (ignorado pelo Git).
 
 ## Comprovantes de pagamento
 
