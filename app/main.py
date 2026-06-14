@@ -124,7 +124,7 @@ try:
                 st.session_state.token_criado_em = payload["criado_em"]
 
     if "user" not in st.session_state:
-        tela_login()
+        tela_login(cookie_controller)
     else:
         # Timeout de inatividade (configurável via env)
         try:
