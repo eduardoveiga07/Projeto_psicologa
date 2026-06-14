@@ -49,13 +49,16 @@ def tela_login(cookie_controller=None):
                         # Salva o token de sessão no cookie
                         token = criar_token_sessao(user.id_usuario, user.username, user.perfil)
                         if cookie_controller:
-                            cookie_controller.set(
-                                "consultorio_session",
-                                token,
-                                secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
-                                same_site="lax",
-                                max_age=1800
-                            )
+                            try:
+                                cookie_controller.set(
+                                    "consultorio_session",
+                                    token,
+                                    secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
+                                    same_site="lax",
+                                    max_age=1800
+                                )
+                            except TypeError:
+                                pass
                         
                         del st.session_state.troca_senha_obrigatoria_username
                         
@@ -127,13 +130,16 @@ def tela_login(cookie_controller=None):
                     # Salva o token de sessão no cookie
                     token = criar_token_sessao(user.id_usuario, user.username, user.perfil)
                     if cookie_controller:
-                        cookie_controller.set(
-                            "consultorio_session",
-                            token,
-                            secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
-                            same_site="lax",
-                            max_age=1800
-                        )
+                        try:
+                            cookie_controller.set(
+                                "consultorio_session",
+                                token,
+                                secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
+                                same_site="lax",
+                                max_age=1800
+                            )
+                        except TypeError:
+                            pass
                     logger.info(f"Login bem-sucedido para o usuario '{user.username}' com perfil '{user.perfil.value}'")
                     registrar(db(), user.username, "LOGIN",
                               "login bem-sucedido")

@@ -94,12 +94,28 @@ try:
 
     cookie_controller = CookieController()
 
-    # O CookieController pode ter self.__cookies = None no primeiro render
-    # (antes do JS do frontend carregar). Nesse caso, .get() lança TypeError.
-    try:
-        token = cookie_controller.get("consultorio_session")
-    except TypeError:
-        token = None
+    # ---- Helpers seguros: CookieController pode ter __cookies = None ----
+    # Isso acontece no primeiro render antes do JS do frontend carregar.
+    def _cookie_get(name):
+        try:
+            return cookie_controller.get(name)
+        except TypeError:
+            return None
+
+    def _cookie_set(name, value, **kwargs):
+        try:
+            cookie_controller.set(name, value, **kwargs)
+        except TypeError:
+            pass
+
+    def _cookie_remove(name):
+        try:
+            cookie_controller.remove(name)
+        except TypeError:
+            pass
+    # -------------------------------------------------------------------
+
+    token = _cookie_get("consultorio_session")
 
     # Caveat de renderização inicial do Streamlit: se for a primeira execução e o cookie
     # ainda não estiver disponível no session_state (mas existir no browser),
@@ -137,7 +153,7 @@ try:
         if (agora - ultima).total_seconds() > timeout_min * 60:
             registrar(db(), st.session_state.get("username", "?"),
                       "SESSAO_EXPIRADA", f"timeout {timeout_min}min inatividade")
-            cookie_controller.remove("consultorio_session")
+            _cookie_remove("consultorio_session")
             st.session_state.clear()
             st.warning("Sessão expirada por inatividade. Faça login novamente.")
             st.stop()
@@ -151,7 +167,7 @@ try:
             user_db = db().query(Usuario).filter(Usuario.username == st.session_state.username).first()
             if not user_db or not user_db.ativo or user_db.perfil.value != st.session_state.perfil:
                 # O perfil mudou, ou o usuário foi inativado/removido
-                cookie_controller.remove("consultorio_session")
+                _cookie_remove("consultorio_session")
                 st.session_state.clear()
                 st.warning("Sua sessão foi encerrada por alteração cadastral ou inativação.")
                 st.stop()
@@ -163,7 +179,7 @@ try:
                     "perfil": user_db.perfil
                 }
                 novo_token = renovar_token(payload_renov)
-                cookie_controller.set(
+                _cookie_set(
                     "consultorio_session",
                     novo_token,
                     secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
@@ -177,7 +193,7 @@ try:
         if st.sidebar.button("Sair"):
             registrar(db(), st.session_state.get("username", "?"),
                       "LOGOUT", "logout manual")
-            cookie_controller.remove("consultorio_session")
+            _cookie_remove("consultorio_session")
             st.session_state.clear()
             st.rerun()
 
