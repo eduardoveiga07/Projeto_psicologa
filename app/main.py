@@ -93,7 +93,13 @@ try:
     import time
 
     cookie_controller = CookieController()
-    token = cookie_controller.get("consultorio_session")
+
+    # O CookieController pode ter self.__cookies = None no primeiro render
+    # (antes do JS do frontend carregar). Nesse caso, .get() lança TypeError.
+    try:
+        token = cookie_controller.get("consultorio_session")
+    except TypeError:
+        token = None
 
     # Caveat de renderização inicial do Streamlit: se for a primeira execução e o cookie
     # ainda não estiver disponível no session_state (mas existir no browser),
