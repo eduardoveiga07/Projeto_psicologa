@@ -81,7 +81,8 @@ class BuscaGlobalTest(unittest.TestCase):
             data_hora_inicio=datetime(2026, 6, 12, 9, 0),
             data_hora_fim=datetime(2026, 6, 12, 10, 0),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.PENDENTE
+            status_pagamento=StatusPagamento.PENDENTE,
+            valor_sessao=Decimal("150.00")
         )
         self.session.add(self.sess1)
         self.session.commit()

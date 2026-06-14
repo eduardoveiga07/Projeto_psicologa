@@ -67,7 +67,8 @@ class FluxosIntegracaoTest(unittest.TestCase):
                 data_hora_inicio=inicio,
                 data_hora_fim=inicio + timedelta(hours=1),
                 status_presenca=StatusPresenca.AGENDADA,
-                status_pagamento=StatusPagamento.PENDENTE
+                status_pagamento=StatusPagamento.PENDENTE,
+                valor_sessao=Decimal("150.00")
             )
             sessoes.append(s)
             self.session.add(s)
@@ -106,6 +107,7 @@ class FluxosIntegracaoTest(unittest.TestCase):
 
         # 5. Liquidar (Pagar) a primeira sessão individualmente
         sessoes_db[0].status_pagamento = StatusPagamento.PAGO
+        sessoes_db[0].data_pagamento = date(2026, 6, 2)
         self.session.commit()
         
         # 6. Liquidar as sessões restantes cobráveis (Sessões 3 e 4) em LOTE
@@ -119,6 +121,7 @@ class FluxosIntegracaoTest(unittest.TestCase):
         
         for s in pendentes_lote:
             s.status_pagamento = StatusPagamento.PAGO
+            s.data_pagamento = date(2026, 6, 9)
         self.session.commit()
 
         # 7. Validar o demonstrativo financeiro consolidado do mês de Junho/2026

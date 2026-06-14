@@ -1,3 +1,6 @@
+# DEPRECATED: Este arquivo foi desativado em favor do Neon PITR nativo em produção.
+# Mantido apenas para referência histórica.
+
 import json
 import uuid
 from datetime import datetime, date

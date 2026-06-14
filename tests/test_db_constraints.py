@@ -29,6 +29,7 @@ class DbConstraintsTest(unittest.TestCase):
             id_paciente=uuid.uuid4(),
             data_hora_inicio=datetime(2026, 6, 12, 10, 0),
             data_hora_fim=datetime(2026, 6, 12, 9, 0),  # Menor que início!
+            valor_sessao=Decimal("150.00")
         )
         self.session.add(s)
         with self.assertRaises(IntegrityError):
@@ -114,6 +115,36 @@ class DbConstraintsTest(unittest.TestCase):
         )
         self.session.add(s1)
         self.session.add(s2)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_sessao_paga_sem_data_falha(self):
+        # Sessão com status_pagamento = Pago sem data_pagamento deve falhar na constraint
+        from app.db.models import StatusPagamento
+        s = AgendaSessao(
+            id_paciente=uuid.uuid4(),
+            data_hora_inicio=datetime(2026, 6, 12, 10, 0),
+            data_hora_fim=datetime(2026, 6, 12, 11, 0),
+            valor_sessao=Decimal("150.00"),
+            status_pagamento=StatusPagamento.PAGO,
+            data_pagamento=None
+        )
+        self.session.add(s)
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+
+    def test_despesa_paga_sem_data_falha(self):
+        # Despesa paga = True sem data_pagamento deve falhar na constraint
+        from app.db.models import Despesa
+        d = Despesa(
+            descricao="Despesa Inconsistente",
+            valor=Decimal("100.00"),
+            data_vencimento=date(2026, 6, 12),
+            mes_referencia="2026-06",
+            paga=True,
+            data_pagamento=None
+        )
+        self.session.add(d)
         with self.assertRaises(IntegrityError):
             self.session.commit()
 

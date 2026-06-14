@@ -1,10 +1,10 @@
-streamlit
-sqlalchemy
-alembic
-psycopg2-binary
-bcrypt
-reportlab
-cryptography
-coverage
-plotly
+streamlit==1.58.0
+sqlalchemy==2.0.50
+alembic==1.18.4
+psycopg2-binary==2.9.12
+bcrypt==5.0.0
+reportlab==4.5.1
+cryptography==49.0.0
+coverage==7.14.1
+plotly==6.8.0
 

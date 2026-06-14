@@ -138,6 +138,7 @@ def tela_agenda():
                                     data_hora_inicio=ini,
                                     data_hora_fim=fim,
                                     status_presenca=StatusPresenca.AGENDADA,
+                                    valor_sessao=p_obj.valor_sessao,
                                     remarcada_de=dt,
                                     remarcada_motivo=mot))
                                 try:
@@ -213,6 +214,7 @@ def tela_agenda():
                                         data_hora_inicio=ini,
                                         data_hora_fim=ini.replace(hour=h + 1),
                                         status_presenca=StatusPresenca.CANCELADA,
+                                        valor_sessao=p_obj.valor_sessao,
                                         recorrente=True))
                                 try: db().commit()
                                 except Exception: db().rollback()
@@ -283,6 +285,7 @@ def tela_agenda():
                                         data_hora_inicio=ini_orig,
                                         data_hora_fim=ini_orig.replace(hour=h + 1),
                                         status_presenca=StatusPresenca.CANCELADA,
+                                        valor_sessao=p_obj.valor_sessao,
                                         recorrente=True))
                                 ini_nova = datetime.combine(nd, time(hh, mm))
                                 db().add(AgendaSessao(

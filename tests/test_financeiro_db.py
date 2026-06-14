@@ -61,7 +61,9 @@ class FinanceiroDbTest(unittest.TestCase):
             data_hora_inicio=datetime(2026, 6, 1, 9, 0),
             data_hora_fim=datetime(2026, 6, 1, 10, 0),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.PAGO
+            status_pagamento=StatusPagamento.PAGO,
+            data_pagamento=date(2026, 6, 1),
+            valor_sessao=Decimal("120.00")
         )
         # Sessão 2: Realizada e Pendente (Deve contar na Inadimplência)
         s2 = AgendaSessao(
@@ -69,7 +71,8 @@ class FinanceiroDbTest(unittest.TestCase):
             data_hora_inicio=datetime(2026, 6, 8, 9, 0),
             data_hora_fim=datetime(2026, 6, 8, 10, 0),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.PENDENTE
+            status_pagamento=StatusPagamento.PENDENTE,
+            valor_sessao=Decimal("120.00")
         )
         # Sessão 3: Cancelou em cima e Atrasada (Deve contar na Inadimplência)
         s3 = AgendaSessao(
@@ -77,7 +80,8 @@ class FinanceiroDbTest(unittest.TestCase):
             data_hora_inicio=datetime(2026, 6, 15, 9, 0),
             data_hora_fim=datetime(2026, 6, 15, 10, 0),
             status_presenca=StatusPresenca.CANCELOU_EM_CIMA,
-            status_pagamento=StatusPagamento.ATRASADO
+            status_pagamento=StatusPagamento.ATRASADO,
+            valor_sessao=Decimal("120.00")
         )
         # Sessão 4: Realizada e Isenta
         s4 = AgendaSessao(
@@ -85,7 +89,8 @@ class FinanceiroDbTest(unittest.TestCase):
             data_hora_inicio=datetime(2026, 6, 22, 9, 0),
             data_hora_fim=datetime(2026, 6, 22, 10, 0),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.ISENTO
+            status_pagamento=StatusPagamento.ISENTO,
+            valor_sessao=Decimal("120.00")
         )
         # Sessão 5: Falta (isenta de cobrança no faturamento realizado)
         s5 = AgendaSessao(
@@ -93,7 +98,8 @@ class FinanceiroDbTest(unittest.TestCase):
             data_hora_inicio=datetime(2026, 6, 29, 9, 0),
             data_hora_fim=datetime(2026, 6, 29, 10, 0),
             status_presenca=StatusPresenca.IMPREVISTO,
-            status_pagamento=StatusPagamento.PENDENTE
+            status_pagamento=StatusPagamento.PENDENTE,
+            valor_sessao=Decimal("120.00")
         )
 
         self.session.add_all([s1, s2, s3, s4, s5])
@@ -115,14 +121,17 @@ class FinanceiroDbTest(unittest.TestCase):
             data_hora_inicio=datetime(2026, 6, 1, 9, 0),
             data_hora_fim=datetime(2026, 6, 1, 10, 0),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.PENDENTE
+            status_pagamento=StatusPagamento.PENDENTE,
+            valor_sessao=Decimal("120.00")
         )
         s2 = AgendaSessao(
             id_paciente=p_id,
             data_hora_inicio=datetime(2026, 6, 8, 9, 0),
             data_hora_fim=datetime(2026, 6, 8, 10, 0),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.PAGO
+            status_pagamento=StatusPagamento.PAGO,
+            data_pagamento=date(2026, 6, 8),
+            valor_sessao=Decimal("120.00")
         )
         self.session.add_all([s1, s2])
         self.session.commit()
@@ -140,14 +149,16 @@ class FinanceiroDbTest(unittest.TestCase):
             data_hora_inicio=datetime(2026, 6, 1, 9, 0),
             data_hora_fim=datetime(2026, 6, 1, 10, 0),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.PENDENTE
+            status_pagamento=StatusPagamento.PENDENTE,
+            valor_sessao=Decimal("120.00")
         )
         s2 = AgendaSessao(
             id_paciente=p_id,
             data_hora_inicio=datetime(2026, 7, 1, 9, 0),
             data_hora_fim=datetime(2026, 7, 1, 10, 0),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.ATRASADO
+            status_pagamento=StatusPagamento.ATRASADO,
+            valor_sessao=Decimal("120.00")
         )
         self.session.add_all([s1, s2])
         self.session.commit()

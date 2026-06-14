@@ -107,7 +107,7 @@ class AgendaSessao(Base):
     remarcada_motivo = Column(String(120), nullable=True)
     
     # Novas colunas para sessões reais persistidas
-    valor_sessao = Column(Numeric(10, 2), nullable=True)
+    valor_sessao = Column(Numeric(10, 2), nullable=False)
     recorrente = Column(Boolean, nullable=False, default=True)
     
     # Data do pagamento real
@@ -125,6 +125,7 @@ class AgendaSessao(Base):
         CheckConstraint("data_hora_fim > data_hora_inicio", name="ck_sessoes_datas"),
         CheckConstraint("valor_sessao >= 0", name="ck_valor_sessao_sess_pos"),
         UniqueConstraint("id_paciente", "data_hora_inicio", name="uq_paciente_horario"),
+        CheckConstraint("CAST(status_pagamento AS VARCHAR) != 'PAGO' OR data_pagamento IS NOT NULL", name="ck_sessao_pago_tem_data"),
     )
 
 
@@ -175,7 +176,10 @@ class Despesa(Base):
     comprovante_mime = Column(String(100), nullable=True)          # ex: application/pdf, image/jpeg
     comprovante_tamanho = Column(Integer, nullable=True)           # tamanho em bytes
     comprovante_enviado_em = Column(DateTime, nullable=True)       # data/hora do upload
-    __table_args__ = (CheckConstraint("valor >= 0", name="ck_despesa_pos"),)
+    __table_args__ = (
+        CheckConstraint("valor >= 0", name="ck_despesa_pos"),
+        CheckConstraint("NOT paga OR data_pagamento IS NOT NULL", name="ck_despesa_paga_tem_data"),
+    )
 
 
 class Perfil(str, enum.Enum):

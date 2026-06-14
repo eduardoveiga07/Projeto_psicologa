@@ -104,7 +104,8 @@ class NotificacoesTest(unittest.TestCase):
             data_hora_inicio=datetime.now() - timedelta(days=2),
             data_hora_fim=datetime.now() - timedelta(days=2, hours=-1),
             status_presenca=StatusPresenca.REALIZADA,
-            status_pagamento=StatusPagamento.PENDENTE
+            status_pagamento=StatusPagamento.PENDENTE,
+            valor_sessao=Decimal("120.00")
         )
         self.session.add(sessao)
         self.session.commit()
