@@ -46,19 +46,11 @@ def tela_login(cookie_controller=None):
                         st.session_state.perfil = user.perfil.value
                         st.session_state.last_active = datetime.now()
                         
-                        # Salva o token de sessão no cookie
+                        # Salva o token pendente no session_state
+                        # O main.py irá gravar no cookie no próximo render
                         token = criar_token_sessao(user.id_usuario, user.username, user.perfil)
-                        if cookie_controller:
-                            try:
-                                cookie_controller.set(
-                                    "consultorio_session",
-                                    token,
-                                    secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
-                                    same_site="lax",
-                                    max_age=1800
-                                )
-                            except TypeError:
-                                pass
+                        st.session_state.pending_cookie_token = token
+                        st.session_state.id_usuario = user.id_usuario
                         
                         del st.session_state.troca_senha_obrigatoria_username
                         
@@ -127,19 +119,11 @@ def tela_login(cookie_controller=None):
                     st.session_state.perfil = user.perfil.value
                     st.session_state.last_active = datetime.now()
                     
-                    # Salva o token de sessão no cookie
+                    # Salva o token pendente no session_state
+                    # O main.py irá gravar no cookie no próximo render
                     token = criar_token_sessao(user.id_usuario, user.username, user.perfil)
-                    if cookie_controller:
-                        try:
-                            cookie_controller.set(
-                                "consultorio_session",
-                                token,
-                                secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
-                                same_site="lax",
-                                max_age=1800
-                            )
-                        except TypeError:
-                            pass
+                    st.session_state.pending_cookie_token = token
+                    st.session_state.id_usuario = user.id_usuario
                     logger.info(f"Login bem-sucedido para o usuario '{user.username}' com perfil '{user.perfil.value}'")
                     registrar(db(), user.username, "LOGIN",
                               "login bem-sucedido")

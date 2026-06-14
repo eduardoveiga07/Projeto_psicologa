@@ -142,6 +142,22 @@ try:
     if "user" not in st.session_state:
         tela_login(cookie_controller)
     else:
+        # Grava token pendente no cookie (deferido do login.py para render limpo)
+        if "pending_cookie_token" in st.session_state:
+            pending_token = st.session_state.pop("pending_cookie_token")
+            try:
+                timeout_min_cookie = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
+            except ValueError:
+                timeout_min_cookie = 30
+            _cookie_set(
+                "consultorio_session",
+                pending_token,
+                secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
+                same_site="lax",
+                max_age=timeout_min_cookie * 60
+            )
+            st.session_state.token_criado_em = time.time()
+
         # Timeout de inatividade (configurável via env)
         try:
             timeout_min = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
