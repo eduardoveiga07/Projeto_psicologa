@@ -7,5 +7,7 @@ nginx/certs/
 logs/
 .streamlit/secrets.toml
 uploads/
+.session_key.local
+
 
 

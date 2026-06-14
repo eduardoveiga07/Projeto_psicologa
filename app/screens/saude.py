@@ -96,6 +96,46 @@ def tela_saude():
         "- **Restauração Simples:** Acesse o painel do [Neon Console](https://console.neon.tech/), selecione seu projeto, vá em **Snapshots** ou **Branches**, escolha o ponto exato no tempo e restaure ou crie uma nova ramificação de testes instantaneamente.\n"
         "- **Performance Preservada:** Não há execução de dumps locais pesados na aplicação, prevenindo picos de consumo de RAM e CPU no Streamlit Cloud."
     )
+    st.write("---")
+
+    # Seção de Exportação (Dona e Programador)
+    st.subheader("📥 Exportar dados do consultório")
+    st.markdown(
+        "Baixe um arquivo ZIP com todos os dados do consultório em formato Excel.\n\n"
+        "**Recomendado:** exporte uma vez por mês e guarde fora do sistema (HD externo, drive pessoal)."
+    )
+
+    # Processo em duas etapas com buffer de memória para evitar I/O a cada rerun
+    if st.button("Gerar exportação", key="btn_gerar_exportacao"):
+        with st.spinner("Gerando arquivos Excel e compactando em ZIP..."):
+            try:
+                from app.services.exportacao import gerar_exportacao_zip
+                zip_bytes = gerar_exportacao_zip(s)
+                st.session_state.export_zip_bytes = zip_bytes
+                st.session_state.export_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                # Registra na auditoria obtendo contagens
+                from app.db.models import Paciente, AgendaSessao, Despesa
+                total_pacientes = s.query(Paciente).count()
+                total_sessoes = s.query(AgendaSessao).count()
+                total_despesas = s.query(Despesa).count()
+                total_registros = total_pacientes + total_sessoes + total_despesas
+
+                registrar(s, st.session_state.username, "EXPORTACAO_DADOS",
+                          f"Sucesso. Total de registros exportados: {total_registros} "
+                          f"(Pacientes: {total_pacientes}, Sessões: {total_sessoes}, Despesas: {total_despesas})")
+                st.success("Exportação gerada com sucesso! Clique no botão abaixo para baixar o arquivo.")
+            except Exception as e:
+                st.error(f"Erro ao gerar a exportação: {e}")
+
+    if "export_zip_bytes" in st.session_state:
+        st.download_button(
+            label="💾 Baixar Arquivo ZIP",
+            data=st.session_state.export_zip_bytes,
+            file_name=f"consultorio_exportacao_{st.session_state.export_timestamp}.zip",
+            mime="application/zip",
+            key="btn_baixar_zip"
+        )
 
     st.write("---")
 

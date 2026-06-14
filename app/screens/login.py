@@ -1,5 +1,8 @@
 import streamlit as st
+import os
 from datetime import datetime
+from streamlit_cookies_controller import CookieController
+from app.auth.sessao import criar_token_sessao
 from app.screens.shared import db, registrar, Usuario, Perfil
 from app.auth.login import autenticar, gerar_hash
 from app.services.email_srv import gerar_reset, aplicar_reset
@@ -43,6 +46,17 @@ def tela_login():
                         st.session_state.username = user.username
                         st.session_state.perfil = user.perfil.value
                         st.session_state.last_active = datetime.now()
+                        
+                        # Salva o token de sessão no cookie
+                        token = criar_token_sessao(user.id_usuario, user.username, user.perfil)
+                        controller = CookieController()
+                        controller.set(
+                            "consultorio_session",
+                            token,
+                            secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
+                            same_site="lax",
+                            max_age=1800
+                        )
                         
                         del st.session_state.troca_senha_obrigatoria_username
                         
@@ -110,6 +124,17 @@ def tela_login():
                     st.session_state.username = user.username
                     st.session_state.perfil = user.perfil.value
                     st.session_state.last_active = datetime.now()
+                    
+                    # Salva o token de sessão no cookie
+                    token = criar_token_sessao(user.id_usuario, user.username, user.perfil)
+                    controller = CookieController()
+                    controller.set(
+                        "consultorio_session",
+                        token,
+                        secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
+                        same_site="lax",
+                        max_age=1800
+                    )
                     logger.info(f"Login bem-sucedido para o usuario '{user.username}' com perfil '{user.perfil.value}'")
                     registrar(db(), user.username, "LOGIN",
                               "login bem-sucedido")

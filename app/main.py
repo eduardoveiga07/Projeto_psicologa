@@ -87,25 +87,91 @@ _executar_retencao_lgpd()
 # ---------- ROUTER ----------
 
 try:
+    # Inicializa CookieController e tenta restaurar sessão
+    from streamlit_cookies_controller import CookieController
+    from app.auth.sessao import validar_token, renovar_token
+    import time
+
+    cookie_controller = CookieController()
+    token = cookie_controller.get("consultorio_session")
+
+    # Caveat de renderização inicial do Streamlit: se for a primeira execução e o cookie
+    # ainda não estiver disponível no session_state (mas existir no browser),
+    # força um rerun inicial para sincronizar.
+    if token is None and "user" not in st.session_state and not st.session_state.get("cookie_checked", False):
+        st.session_state.cookie_checked = True
+        st.rerun()
+
+    # Restaura a sessão a partir do cookie se o st.session_state estiver vazio
+    if token and "user" not in st.session_state:
+        payload = validar_token(token)
+        if payload:
+            from app.db.models import Usuario
+            s_db = db()
+            user_db = s_db.query(Usuario).filter(Usuario.id_usuario == payload["usuario_id"]).first()
+            if user_db and user_db.ativo:
+                st.session_state.user = user_db.nome
+                st.session_state.username = user_db.username
+                st.session_state.perfil = user_db.perfil.value
+                st.session_state.id_usuario = user_db.id_usuario
+                st.session_state.last_active = datetime.now()
+                st.session_state.token_criado_em = payload["criado_em"]
+
     if "user" not in st.session_state:
         tela_login()
     else:
-        # Timeout de sessao: 15 min de inatividade (ambiente clinico).
+        # Timeout de inatividade (configurável via env)
+        try:
+            timeout_min = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
+        except ValueError:
+            timeout_min = 30
+
         agora = datetime.now()
         ultima = st.session_state.get("last_active", agora)
-        if (agora - ultima).total_seconds() > 15 * 60:
+        if (agora - ultima).total_seconds() > timeout_min * 60:
             registrar(db(), st.session_state.get("username", "?"),
-                      "SESSAO_EXPIRADA", "timeout 15min inatividade")
+                      "SESSAO_EXPIRADA", f"timeout {timeout_min}min inatividade")
+            cookie_controller.remove("consultorio_session")
             st.session_state.clear()
             st.warning("Sessão expirada por inatividade. Faça login novamente.")
             st.stop()
         st.session_state.last_active = agora
+
+        # Debounce de renovação do cookie de sessão a cada 5 minutos
+        # E proteção ativa contra Privilege Escalation (query rápida de verificação do usuário)
+        criado_em = st.session_state.get("token_criado_em", 0)
+        if time.time() - criado_em >= 300: # 5 minutos
+            from app.db.models import Usuario
+            user_db = db().query(Usuario).filter(Usuario.username == st.session_state.username).first()
+            if not user_db or not user_db.ativo or user_db.perfil.value != st.session_state.perfil:
+                # O perfil mudou, ou o usuário foi inativado/removido
+                cookie_controller.remove("consultorio_session")
+                st.session_state.clear()
+                st.warning("Sua sessão foi encerrada por alteração cadastral ou inativação.")
+                st.stop()
+            else:
+                # Renova o token e atualiza o cookie
+                payload_renov = {
+                    "usuario_id": st.session_state.get("id_usuario"),
+                    "username": st.session_state.username,
+                    "perfil": user_db.perfil
+                }
+                novo_token = renovar_token(payload_renov)
+                cookie_controller.set(
+                    "consultorio_session",
+                    novo_token,
+                    secure=(os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"),
+                    same_site="lax",
+                    max_age=timeout_min * 60
+                )
+                st.session_state.token_criado_em = time.time()
 
         st.sidebar.write(f"Logado: {st.session_state.user}")
         st.sidebar.caption(f"Perfil: {st.session_state.perfil}")
         if st.sidebar.button("Sair"):
             registrar(db(), st.session_state.get("username", "?"),
                       "LOGOUT", "logout manual")
+            cookie_controller.remove("consultorio_session")
             st.session_state.clear()
             st.rerun()
 
