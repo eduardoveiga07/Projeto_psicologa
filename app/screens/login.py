@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 from datetime import datetime
-from app.auth.sessao import criar_token_sessao
 from app.screens.shared import db, registrar, Usuario, Perfil
 from app.auth.login import autenticar, gerar_hash
 from app.services.email_srv import gerar_reset, aplicar_reset
@@ -46,10 +45,6 @@ def tela_login():
                         st.session_state.perfil = user.perfil.value
                         st.session_state.last_active = datetime.now()
                         
-                        # Salva o token pendente no session_state
-                        # O main.py irá gravar no cookie no próximo render
-                        token = criar_token_sessao(user.id_usuario, user.username, user.perfil)
-                        st.session_state.pending_cookie_token = token
                         st.session_state.id_usuario = user.id_usuario
                         
                         del st.session_state.troca_senha_obrigatoria_username
@@ -119,10 +114,6 @@ def tela_login():
                     st.session_state.perfil = user.perfil.value
                     st.session_state.last_active = datetime.now()
                     
-                    # Salva o token pendente no session_state
-                    # O main.py irá gravar no cookie no próximo render
-                    token = criar_token_sessao(user.id_usuario, user.username, user.perfil)
-                    st.session_state.pending_cookie_token = token
                     st.session_state.id_usuario = user.id_usuario
                     logger.info(f"Login bem-sucedido para o usuario '{user.username}' com perfil '{user.perfil.value}'")
                     registrar(db(), user.username, "LOGIN",

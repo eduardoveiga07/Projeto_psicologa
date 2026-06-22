@@ -87,123 +87,30 @@ _executar_retencao_lgpd()
 # ---------- ROUTER ----------
 
 try:
-    from app.auth.sessao import validar_token, renovar_token
-    import time
-    from datetime import timedelta
-    # Usa a função interna do streamlit-cookies-controller diretamente.
-    # A classe CookieController tem um bug onde self.__cookies = None no primeiro render,
-    # causando TypeError em .set()/.get()/.remove(). A função _cookie_controller
-    # renderiza o componente JS same-origin que REALMENTE grava cookies no browser.
-    from streamlit_cookies_controller.cookie_controller import _cookie_controller
-
-    def _cookie_set(name, value, max_age=1800, secure=False, same_site="lax"):
-        """Grava cookie no browser via componente JS same-origin."""
-        options = {
-            "path": "/",
-            "maxAge": max_age,
-            "sameSite": same_site,
-        }
-        if secure:
-            options["secure"] = True
-        _cookie_controller(method='set', name=name, value=value, options=options)
-
-    def _cookie_remove(name):
-        """Remove cookie do browser via componente JS same-origin."""
-        options = {"path": "/", "sameSite": "lax"}
-        _cookie_controller(method='remove', name=name, options=options)
-
-    def _cookie_get(name):
-        """Lê cookie via st.context.cookies (API nativa, lê dos headers HTTP)."""
-        try:
-            return st.context.cookies.get(name)
-        except Exception:
-            return None
-    # -------------------------------------------------------------------
-
-    is_prod = os.getenv("AMBIENTE", "desenvolvimento").lower() == "producao"
-
     try:
         timeout_min = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
     except ValueError:
         timeout_min = 30
 
-    token = _cookie_get("consultorio_session")
-
-    # Restaura a sessão a partir do cookie se o st.session_state estiver vazio
-    if token and "user" not in st.session_state:
-        payload = validar_token(token)
-        if payload:
-            from app.db.models import Usuario
-            s_db = db()
-            user_db = s_db.query(Usuario).filter(Usuario.id_usuario == payload["usuario_id"]).first()
-            if user_db and user_db.ativo:
-                st.session_state.user = user_db.nome
-                st.session_state.username = user_db.username
-                st.session_state.perfil = user_db.perfil.value
-                st.session_state.id_usuario = user_db.id_usuario
-                st.session_state.last_active = datetime.now()
-                st.session_state.token_criado_em = payload["criado_em"]
-
     if "user" not in st.session_state:
         tela_login()
     else:
-        # Grava token pendente no cookie (deferido do login.py para render limpo)
-        if "pending_cookie_token" in st.session_state:
-            pending_token = st.session_state.pop("pending_cookie_token")
-            _cookie_set(
-                "consultorio_session",
-                pending_token,
-                max_age=timeout_min * 60,
-                secure=is_prod,
-                same_site="lax"
-            )
-            st.session_state.token_criado_em = time.time()
-
         # Timeout de inatividade
         agora = datetime.now()
         ultima = st.session_state.get("last_active", agora)
         if (agora - ultima).total_seconds() > timeout_min * 60:
             registrar(db(), st.session_state.get("username", "?"),
                       "SESSAO_EXPIRADA", f"timeout {timeout_min}min inatividade")
-            _cookie_remove("consultorio_session")
             st.session_state.clear()
             st.warning("Sessão expirada por inatividade. Faça login novamente.")
             st.stop()
         st.session_state.last_active = agora
-
-        # Debounce de renovação do cookie de sessão a cada 5 minutos
-        # E proteção ativa contra Privilege Escalation
-        criado_em = st.session_state.get("token_criado_em", 0)
-        if time.time() - criado_em >= 300: # 5 minutos
-            from app.db.models import Usuario
-            user_db = db().query(Usuario).filter(Usuario.username == st.session_state.username).first()
-            if not user_db or not user_db.ativo or user_db.perfil.value != st.session_state.perfil:
-                _cookie_remove("consultorio_session")
-                st.session_state.clear()
-                st.warning("Sua sessão foi encerrada por alteração cadastral ou inativação.")
-                st.stop()
-            else:
-                payload_renov = {
-                    "usuario_id": st.session_state.get("id_usuario"),
-                    "username": st.session_state.username,
-                    "perfil": user_db.perfil
-                }
-                novo_token = renovar_token(payload_renov)
-                _cookie_set(
-                    "consultorio_session",
-                    novo_token,
-                    max_age=timeout_min * 60,
-                    secure=is_prod,
-                    same_site="lax"
-                )
-                st.session_state.token_criado_em = time.time()
 
         st.sidebar.write(f"Logado: {st.session_state.user}")
         st.sidebar.caption(f"Perfil: {st.session_state.perfil}")
         if st.sidebar.button("Sair"):
             registrar(db(), st.session_state.get("username", "?"),
                       "LOGOUT", "logout manual")
-            _cookie_remove("consultorio_session")
             st.session_state.clear()
             st.rerun()
 
